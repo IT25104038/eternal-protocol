@@ -3,9 +3,12 @@ package com.eternalprotocol.api.controller;
 
 import com.eternalprotocol.api.dto.CartItemDto;
 import com.eternalprotocol.api.dto.CartItemRequestDto;
+import com.eternalprotocol.api.dto.CustomerProfileDto;
 import com.eternalprotocol.api.dto.UpdateCartItemQuantityRequestDto;
+import com.eternalprotocol.api.dto.UpdateCustomerProfileRequestDto;
 import com.eternalprotocol.api.security.CurrentUser;
 import com.eternalprotocol.api.service.CartService;
+import com.eternalprotocol.api.service.CustomerService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,18 +28,42 @@ import java.util.List;
 @RequestMapping("/api/customers/me")
 public class CustomerController {
 
+    private final CustomerService customerService;
     private final CartService cartService;
     private final CurrentUser currentUser;
 
     /**
      * Sets up the controller with the necessary services
      *
+     * @param customerService handles profile read/update logic
      * @param cartService handles the shopping cart logic
      * @param currentUser extracts the logged-in customer's ID from their token
      */
-    public CustomerController(CartService cartService, CurrentUser currentUser) {
+    public CustomerController(CustomerService customerService, CartService cartService, CurrentUser currentUser) {
+        this.customerService = customerService;
         this.cartService = cartService;
         this.currentUser = currentUser;
+    }
+
+    /**
+     * Gets the logged in customer's own profile (used to prefill checkout)
+     *
+     * @return the customer's profile details
+     */
+    @GetMapping
+    public ResponseEntity<CustomerProfileDto> getProfile() {
+        return ResponseEntity.ok(customerService.getProfile(currentUser.id()));
+    }
+
+    /**
+     * Updates the logged in customer's own delivery details
+     *
+     * @param request updated name, phone and address
+     * @return the updated profile
+     */
+    @PutMapping
+    public ResponseEntity<CustomerProfileDto> updateProfile(@Valid @RequestBody UpdateCustomerProfileRequestDto request) {
+        return ResponseEntity.ok(customerService.updateProfile(currentUser.id(), request));
     }
 
     /**
@@ -88,6 +115,18 @@ public class CustomerController {
     public ResponseEntity<Void> removeFromCart(@PathVariable Long itemId) {
         cartService.removeFromCart(currentUser.id(), itemId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Empties the logged in customer's whole cart
+     * MILESTONE 2: this becomes a MacroCartCommand run through CartInvoker so it can be undone
+     *
+     * @return the customer's cart, now empty
+     */
+    @DeleteMapping("/cart")
+    public ResponseEntity<List<CartItemDto>> clearCart() {
+        cartService.clearCart(currentUser.id());
+        return ResponseEntity.ok(List.of());
     }
 
 }

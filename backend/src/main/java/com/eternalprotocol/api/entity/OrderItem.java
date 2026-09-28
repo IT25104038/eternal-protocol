@@ -2,7 +2,6 @@ package com.eternalprotocol.api.entity;
 
 import jakarta.persistence.*;
 
-import java.beans.Transient;
 import java.math.BigDecimal;
 
 /**
@@ -46,7 +45,7 @@ public class OrderItem {
      * The product's price at the moment this order was placed, copied from
      * {@link Product#getPrice()}. Stored separately (not looked up live)
      * so that if an admin changes the product's price later, past orders
-     * still show what the customer actually paid at the time.
+     * still show what the customer actually paid at the time
      */
     @Column(name = "unit_price", nullable = false, precision = 10, scale = 2)
     private BigDecimal unitPrice;
@@ -56,7 +55,7 @@ public class OrderItem {
     }
 
     /**
-     * Creates a new order line.
+     * Creates a new order line
      *
      * @param order     the order this line belongs to
      * @param product   product variant purchased
@@ -138,6 +137,7 @@ public class OrderItem {
      *
      * @return the line total
      */
+    
     @Transient
     public BigDecimal getLineTotal() {
         return unitPrice.multiply(BigDecimal.valueOf(quantity));

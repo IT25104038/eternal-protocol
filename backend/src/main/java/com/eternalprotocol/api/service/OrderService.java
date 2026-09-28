@@ -119,7 +119,7 @@ public class OrderService {
             customer = customerRepository.findById(loggedInCustomerId)
                     .orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + loggedInCustomerId));
         } else {
-            customer = new Customer(request.customerName(), null, null, request.phone(), request.address());
+            customer = new Customer(request.customerName(), request.phone(), request.address());
             customer = customerRepository.save(customer);
         }
 
