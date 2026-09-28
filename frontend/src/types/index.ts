@@ -1,12 +1,6 @@
-// MILESTONE 1 SCOPE — the shared contract between all four modules.
-// Mirrors BACKEND_API_SPEC.md. When a backend DTO changes, the owner of that
-// DTO opens the pull request against this file — not Gaveen.
-// 
-// Deferred to Milestone 2: ProductStatus, showPrice, UploadImageResponse,
-// ProductImageDto / ProductImageInput, AthleteDashboardDto,
-// AthleteDashboardOrder, CommissionDto and CommissionStatus.
-
 export type Role = 'CUSTOMER' | 'ATHLETE' | 'ADMIN'
+
+export type CommissionStatus = 'AWAITING_PAYMENT' | 'EARNED' | 'PAID'
 
 export type PaymentStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 
@@ -17,7 +11,7 @@ export interface ApiError {
   message: string
 }
 
-// ---- Module 1: Storefront & Catalog ----
+// ---- Storefront & Catalog ----
 
 export type ProductCategory = 'MENS' | 'WOMENS' | 'ACCESSORIES'
 
@@ -86,7 +80,7 @@ export interface CreateOrderInput {
 export interface CreateOrderResponse {
   orderId: number
   totalAmount: number
-  // MILESTONE 2 adds: paymentUrl: string (the PayHere redirect URL)
+  // In the future this adds: paymentUrl: string (the PayHere redirect URL)
 }
 
 export interface OrderDetailDto {
@@ -190,11 +184,3 @@ export interface AuthResponse {
   role: Role
   userId: number
 }
-
-// ------------------------------------------------------------------------
-// MILESTONE 2 adds, in this file:
-//   ProductStatus, ProductDto.status, ProductDto.showPrice
-//   UploadImageResponse, ProductImageDto, ProductImageInput
-//   CommissionStatus, CommissionDto
-//   AthleteDashboardOrder, AthleteDashboardDto
-// ------------------------------------------------------------------------

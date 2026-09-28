@@ -3,7 +3,6 @@ import type { StyleGroup } from '@/features/shop/groupByStyle'
 import { Price } from './Price'
 
 export function ProductCard({ style }: { style: StyleGroup }) {
-
   return (
     <Link to={`/product/${style.representativeId}`} className="group block">
       <div className="relative aspect-[3/4] overflow-hidden bg-ep-surface">
@@ -19,16 +18,11 @@ export function ProductCard({ style }: { style: StyleGroup }) {
             No image
           </div>
         )}
-        {isComingSoon ? (
-          <div className="absolute left-2 top-2 bg-ep-bone px-2 py-1 text-[10px] uppercase tracking-widest text-ep-black">
-            Coming soon
+        {/* In the future, show a "Coming soon" badge here when style.status === 'COMING_SOON' */}
+        {!style.inStock && (
+          <div className="absolute left-2 top-2 bg-ep-black/80 px-2 py-1 text-[10px] uppercase tracking-widest text-ep-muted">
+            Sold out
           </div>
-        ) : (
-          !style.inStock && (
-            <div className="absolute left-2 top-2 bg-ep-black/80 px-2 py-1 text-[10px] uppercase tracking-widest text-ep-muted">
-              Sold out
-            </div>
-          )
         )}
       </div>
       <div className="mt-3 flex items-start justify-between">
