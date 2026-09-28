@@ -64,17 +64,12 @@ function ServerCart() {
     onError: (err) => pushToast(getErrorMessage(err), 'error'),
   })
 
-  const undoMutation = useMutation({
-    mutationFn: customersApi.cart.undo,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cart'] }),
-    onError: (err) => pushToast(getErrorMessage(err), 'error'),
-  })
-
   const clearMutation = useMutation({
     mutationFn: customersApi.cart.clear,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cart'] })
-      pushToast('Cart cleared', 'info', { label: 'Undo', onClick: () => undoMutation.mutate() })
+      // MILESTONE 2: add an Undo action to this toast, calling customersApi.cart.undo()
+      pushToast('Cart cleared', 'info')
     },
     onError: (err) => pushToast(getErrorMessage(err), 'error'),
   })
