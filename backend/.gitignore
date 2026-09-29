@@ -9,3 +9,8 @@ target/
 .env
 *.env
 !.env.example
+
+# MySQL files
+**/*.sql
+**/*.sql.gz
+**/*.mysql
