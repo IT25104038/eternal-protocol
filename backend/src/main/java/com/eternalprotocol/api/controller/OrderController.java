@@ -5,16 +5,17 @@ import com.eternalprotocol.api.dto.OrderRequestDto;
 import com.eternalprotocol.api.dto.OrderResponseDto;
 import com.eternalprotocol.api.security.AppUserDetails;
 import com.eternalprotocol.api.service.OrderService;
+import com.eternalprotocol.api.service.PaymentService;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Handles the checkout process and fetching order details.
- * 
- * These endpoints are public so guest users can easily check out without an account. 
- * However, if a user is logged in, we detect it and link the order to their account history.
+ * REST endpoints for order processing and PayHere payments
+ * <p>
+ * Supports both guest and authenticated checkouts
  */
 
 @RestController
@@ -22,26 +23,26 @@ import org.springframework.web.bind.annotation.*;
 public class OrderController {
 
     private final OrderService orderService;
+    private final PaymentService paymentService;
 
     /**
-    * Sets up the order controller
-    *
-    * @param orderService handles creating orders and calculating totals
-    */
-    public OrderController(OrderService orderService) {
+     * @param orderService   the order service
+     * @param paymentService the PayHere payment verification service
+     */
+    public OrderController(OrderService orderService, PaymentService paymentService) {
         this.orderService = orderService;
+        this.paymentService = paymentService;
     }
 
     /**
-    * Processes a checkout. 
-    * Works for both guests and logged in users. If they are logged in, the order gets 
-    * saved to their account history. If they are a guest, we create a temporary record 
-    * for this specific order.
-    *
-    * @param request        checkout details: items, delivery info, optional athlete code
-     * @param authentication the current request's login info, if any
-    * @return the created order's ID and total
-    */
+     * Places a new order
+     * <p>
+     * Supports both guest and authenticated checkouts
+     *
+     * @param request   the order request details
+     * @param authentication the optional authentication details
+     * @return the order creation response containing payment redirection details
+     */
 
     @PostMapping
     public ResponseEntity<OrderResponseDto> createOrder(@Valid @RequestBody OrderRequestDto request,
@@ -55,15 +56,62 @@ public class OrderController {
     }
 
     /**
-     * Gets full details of one order, used for the order confirmation page.
+     * Retrieves the details of an order
      *
-     * @param id order's database ID
-     * @return the order's full details
+     * @param id the order ID
+     * @return the order details
      */
-    
+
     @GetMapping("/{id}")
     public ResponseEntity<OrderDetailDto> getOrder(@PathVariable Long id) {
         return ResponseEntity.ok(orderService.getOrderDetail(id));
     }
 
+    /**
+     * Generates an auto submitting HTML page for PayHere payment redirection
+     *
+     * @param id the order ID
+     * @return the HTML redirection page
+     */
+
+    @GetMapping(value = "/{id}/checkout-redirect", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> checkoutRedirect(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.buildCheckoutRedirectHtml(id));
+    }
+
+    /**
+     * Webhook endpoint for PayHere payment notifications
+     * <p>
+     * Verifies the MD5 signature to authenticate the callback before processing the payment
+     *
+     * @param id     order ID
+     * @param merchantId  PayHere merchant ID
+     * @param orderId   internal order reference
+     * @param payhereAmount payment amount
+     * @param payhereCurrency payment currency
+     * @param statusCode the payment status code
+     * @param md5sig   the MD5 signature for verification
+     * @return an empty response acknowledging receipt
+     */
+
+    @PostMapping("/{id}/confirm-payment")
+    public ResponseEntity<Void> confirmPayment(
+            @PathVariable Long id,
+            @RequestParam("merchant_id") String merchantId,
+            @RequestParam("order_id") String orderId,
+            @RequestParam("payhere_amount") String payhereAmount,
+            @RequestParam("payhere_currency") String payhereCurrency,
+            @RequestParam("status_code") String statusCode,
+            @RequestParam("md5sig") String md5sig) {
+
+        boolean validSignature = paymentService.verifyNotifySignature(
+                merchantId, orderId, payhereAmount, payhereCurrency, statusCode, md5sig);
+
+
+        if (validSignature && "2".equals(statusCode)) {
+            orderService.confirmPayment(id);
+        }
+
+        return ResponseEntity.ok().build();
+    }
 }
