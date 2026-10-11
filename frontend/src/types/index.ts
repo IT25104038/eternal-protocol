@@ -1,8 +1,9 @@
+// Mirrors BACKEND_API_SPEC.md exactly. Keep this in sync when the backend changes.
+
 export type Role = 'CUSTOMER' | 'ATHLETE' | 'ADMIN'
 
-export type CommissionStatus = 'AWAITING_PAYMENT' | 'EARNED' | 'PAID'
-
 export type PaymentStatus = 'PENDING' | 'PAID' | 'CANCELLED'
+export type CommissionStatus = 'AWAITING_PAYMENT' | 'EARNED' | 'PAID'
 
 export interface ApiError {
   timestamp: string
@@ -11,9 +12,16 @@ export interface ApiError {
   message: string
 }
 
-// ---- Storefront & Catalog ----
+// ---- Module 1: Storefront & Catalog ----
 
 export type ProductCategory = 'MENS' | 'WOMENS' | 'ACCESSORIES'
+
+// Independent of stock — a product can be ACTIVE with zero stock (shown as
+// "Sold out"), and a COMING_SOON product's stock is irrelevant until launch.
+// COMING_SOON products never appear in the regular category pages or New
+// Drops, only on the dedicated Upcoming page, and can never be added to a
+// cart or ordered (enforced server-side too, not just in this UI).
+export type ProductStatus = 'ACTIVE' | 'COMING_SOON'
 
 export interface ProductDto {
   id: number
@@ -27,7 +35,10 @@ export interface ProductDto {
   stockQty: number
   imageUrl: string | null
   description: string | null
-  /** When this variant was first created — admin-immutable. ISO 8601 string. */
+  status: ProductStatus
+  /** Whether the price should be shown to shoppers. Only meaningful while status is COMING_SOON. */
+  showPrice: boolean
+  /** When this variant was first created — admin-immutable, drives New Drops. ISO 8601 string. */
   createdAt: string
 }
 
@@ -41,7 +52,32 @@ export interface ProductInput {
   size: string
   stockQty: number
   description?: string
-  imageUrl?: string
+  status?: ProductStatus
+  showPrice?: boolean
+}
+
+export interface UploadImageResponse {
+  imageUrl: string
+  publicId: string
+}
+
+// One gallery photo, scoped to a style+colour (shared across every size row
+// of that colour) — what the PDP carousel and admin gallery editor use.
+// The cover photo (isCover) is what ends up as ProductDto.imageUrl — chosen
+// from the gallery rather than uploaded separately.
+export interface ProductImageDto {
+  id: number
+  colour: string
+  imageUrl: string
+  sortOrder: number
+  isCover: boolean
+}
+
+export interface ProductImageInput {
+  colour: string
+  imageUrl: string
+  publicId?: string
+  sortOrder?: number
 }
 
 // ---- Module 2: Cart, Checkout & Payment ----
@@ -80,7 +116,7 @@ export interface CreateOrderInput {
 export interface CreateOrderResponse {
   orderId: number
   totalAmount: number
-  // In the future this adds: paymentUrl: string (the PayHere redirect URL)
+  paymentUrl: string
 }
 
 export interface OrderDetailDto {
@@ -126,7 +162,29 @@ export interface AddCartItemInput {
   quantity: number
 }
 
-// ---- Module 3: Athlete System & Admin Dashboard ----
+// ---- Module 3: Athlete System ----
+
+export interface AthleteDashboardOrder {
+  orderId: number
+  items: OrderLineItemDto[]
+  orderDate: string
+  paymentStatus: PaymentStatus
+  commissionAmount: number
+  commissionStatus: CommissionStatus
+}
+
+export interface AthleteDashboardDto {
+  athleteCode: string
+  commissionRate: number
+  totalOrders: number
+  salesGenerated: number
+  commissionEarned: number
+  paidCommission: number
+  pendingCommission: number
+  orders: AthleteDashboardOrder[]
+}
+
+// ---- Module 4: Admin Dashboard ----
 
 export interface AdminOrderDto {
   id: number
@@ -162,6 +220,16 @@ export interface CreateAthleteInput {
 export interface UpdateAthleteInput {
   commissionRate?: number
   active?: boolean
+}
+
+export interface CommissionDto {
+  id: number
+  athleteName: string
+  athleteCode: string
+  orderId: number
+  commissionAmount: number
+  commissionStatus: CommissionStatus
+  paidDate: string | null
 }
 
 // ---- Auth ----
