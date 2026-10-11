@@ -24,17 +24,17 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Defines which API routes are public and which need a CUSTOMER, ATHLETE,
- * or ADMIN login.
+ * Central place defining which API routes are public and which require a
+ * CUSTOMER, ATHLETE, or ADMIN login.
  * <p>
- * The app is stateless - it doesn't use server sessions or cookies. Instead,
- * every request sends a JWT token to prove who the user is (see
- * {@link JwtAuthFilter} and {@code JwtUtil}). This works well across all
- * three user types without any shared session state.
+ * This app is "stateless": it never uses server-side sessions or cookies to
+ * remember who's logged in. Instead, every request proves who it's from by
+ * sending a JWT token (see {@link JwtAuthFilter} and
+ * {@code com.eternalprotocol.api.security.JwtUtil}), which scales cleanly
+ * across the three different user types without any shared session state.
  */
 @Configuration
 @EnableWebSecurity
-
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -119,23 +119,21 @@ public class SecurityConfig {
                         // Public: browsing the storefront
                         .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/**").permitAll()
 
-                        // Public: guest checkout, and order lookup for the confirmation page
+                        // Public: checkout, PayHere redirect + webhook, order lookup for confirmation page
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/orders/*/checkout-redirect").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/confirm-payment").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*").permitAll()
-                        // MILESTONE 2 — PayHere redirect + webhook, both public:
-                        // .requestMatchers(HttpMethod.GET, "/api/orders/*/checkout-redirect").permitAll()
-                        // .requestMatchers(HttpMethod.POST, "/api/orders/*/confirm-payment").permitAll()
 
                         // Public: athlete code validation (live discount preview)
                         .requestMatchers(HttpMethod.GET, "/api/athletes/validate-code/**").permitAll()
 
-                        // Admin-only product management (create/update/delete)
+                        // Admin-only product management (create/update/delete/image upload)
                         .requestMatchers(HttpMethod.POST, "/api/products").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/products/upload-image").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/products/style/*/images").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
-                        // MILESTONE 2 — image upload and gallery management, admin only:
-                        // .requestMatchers(HttpMethod.POST, "/api/products/upload-image").hasRole("ADMIN")
-                        // .requestMatchers(HttpMethod.POST, "/api/products/style/*/images").hasRole("ADMIN")
 
                         // Role-restricted
                         .requestMatchers("/api/athletes/**").hasRole("ATHLETE")
