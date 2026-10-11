@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * <p>
  * Maps onto the {@code products} table. Multiple Product rows sharing the
  * same {@code styleCode} represent the same "style" shown as one card on
- * the Shop page, for example "Protocol 001 Oversized Tee" in Black/M,
+ * the Shop page — for example "Protocol 001 Oversized Tee" in Black/M,
  * Black/L, and White/M are three separate Product rows that all share one
  * styleCode. Using an explicit admin-set code (rather than guessing from
  * the name) avoids two different products with the same name accidentally
@@ -34,14 +34,14 @@ public class Product {
     @Column(nullable = false)
     private String name;
 
-    /** One of the three fixed top-level storefront sections, see {@link ProductCategory}. */
+    /** One of the three fixed top-level storefront sections — see {@link ProductCategory}. */
     @Enumerated(EnumType.STRING)
     @Column(name = "category", nullable = false)
     private ProductCategory category;
 
     /**
      * Free-text subcategory set by the admin (e.g. "T-Shirts", "Hoodies").
-     * Unlike {@code category}, this isn't a fixed set, the storefront's
+     * Unlike {@code category}, this isn't a fixed set — the storefront's
      * dropdown filters are populated from whatever values currently exist.
      */
     @Column(name = "sub_category", nullable = false)
@@ -72,8 +72,30 @@ public class Product {
     private String description;
 
     /**
+     * Where this variant sits in its storefront lifecycle — see
+     * {@link ProductStatus}. Kept independent of {@link #stockQty}: this
+     * is never inferred, only ever set explicitly by an admin.
+     * <p>
+     * {@code columnDefinition} gives existing rows a safe default when
+     * this column is first added to an already-populated table.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, columnDefinition = "varchar(20) default 'ACTIVE'")
+    private ProductStatus status = ProductStatus.ACTIVE;
+
+    /**
+     * Whether the price should be displayed to shoppers. Only meaningful
+     * while {@link #status} is {@link ProductStatus#COMING_SOON} — an
+     * {@code ACTIVE} product's price is always shown regardless of this
+     * flag. Lets an admin choose whether to reveal pricing ahead of
+     * launch.
+     */
+    @Column(name = "show_price", nullable = false, columnDefinition = "boolean default true")
+    private boolean showPrice = true;
+
+    /**
      * When this product variant was first created. Set automatically on
-     * insert (see {@link #onCreate}) and never changed afterward, not
+     * insert (see {@link #onCreate}) and never changed afterward — not
      * admin-editable, and untouched by updates. Powers the New Drops page
      * and the homepage's "New drops" rail.
      */
@@ -84,7 +106,7 @@ public class Product {
     /**
      * JPA lifecycle callback that stamps {@link #createdAt} the moment
      * this row is first persisted. Deliberately not settable through
-     * {@link com.eternalprotocol.api.dto.ProductRequestDto}, the admin
+     * {@link com.eternalprotocol.api.dto.ProductRequestDto} — the admin
      * doesn't choose this value, the database does.
      */
     @PrePersist
@@ -213,6 +235,22 @@ public class Product {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public ProductStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(ProductStatus status) {
+        this.status = status;
+    }
+
+    public boolean isShowPrice() {
+        return showPrice;
+    }
+
+    public void setShowPrice(boolean showPrice) {
+        this.showPrice = showPrice;
     }
 
     public LocalDateTime getCreatedAt() {
