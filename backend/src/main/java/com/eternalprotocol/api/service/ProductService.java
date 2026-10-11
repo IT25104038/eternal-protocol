@@ -4,8 +4,11 @@ import com.eternalprotocol.api.dto.ProductDto;
 import com.eternalprotocol.api.dto.ProductRequestDto;
 import com.eternalprotocol.api.entity.Product;
 import com.eternalprotocol.api.entity.ProductCategory;
+import com.eternalprotocol.api.entity.ProductStatus;
 import com.eternalprotocol.api.exception.ProductInUseException;
 import com.eternalprotocol.api.exception.ResourceNotFoundException;
+import com.eternalprotocol.api.factory.product.ProductCreator;
+import com.eternalprotocol.api.factory.product.ProductCreatorFactory;
 import com.eternalprotocol.api.repository.CartItemRepository;
 import com.eternalprotocol.api.repository.ProductRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -22,14 +25,21 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CartItemRepository cartItemRepository;
+    private final ProductImageService productImageService;
+    private final ProductCreatorFactory productCreatorFactory;
 
     /**
-     * @param productRepository  access to product data
-     * @param cartItemRepository used to clear cart lines when a product is deleted
+     * @param productRepository     access to product data
+     * @param cartItemRepository    used to clear cart lines when a product is deleted
+     * @param productImageService   keeps a product's cover photo in sync with its gallery
+     * @param productCreatorFactory picks the right category-specific size rule (Factory Method — see that package)
      */
-    public ProductService(ProductRepository productRepository, CartItemRepository cartItemRepository) {
+    public ProductService(ProductRepository productRepository, CartItemRepository cartItemRepository,
+                           ProductImageService productImageService, ProductCreatorFactory productCreatorFactory) {
         this.productRepository = productRepository;
         this.cartItemRepository = cartItemRepository;
+        this.productImageService = productImageService;
+        this.productCreatorFactory = productCreatorFactory;
     }
 
     /**
@@ -41,11 +51,16 @@ public class ProductService {
      * @param styleCode   style code to filter by, or null
      * @param category    top-level category to filter by, or null
      * @param subCategory subcategory to filter by, or null
+     * @param status      lifecycle status to filter by, or null. Storefront
+     *                    pages (category pages, New Drops, Upcoming) always
+     *                    pass this explicitly; leaving it null — as the
+     *                    admin product table does — returns every product
+     *                    regardless of status, newest first
      * @return matching products, newest first
      */
     public List<ProductDto> getAllProducts(String colour, String size, String styleCode,
-                                            ProductCategory category, String subCategory) {
-        return productRepository.searchStorefront(styleCode, colour, size, category, subCategory)
+                                            ProductCategory category, String subCategory, ProductStatus status) {
+        return productRepository.searchStorefront(styleCode, colour, size, category, subCategory, status)
                 .stream().map(this::toDto).toList();
     }
 
@@ -73,14 +88,20 @@ public class ProductService {
 
     /**
      * Creates a new product variant.
+     * <p>
+     * Built via {@link ProductCreatorFactory} (Factory Method — see that
+     * package): which creator subclass runs depends on
+     * {@code request.category()}, and decides how this variant's
+     * {@code size} is resolved — e.g. accessories default to "One Size"
+     * when none is given, apparel requires one explicitly.
      *
      * @param request new product's details
      * @return the created product
      * @throws IllegalArgumentException if this category requires a size and none was given
      */
     public ProductDto createProduct(ProductRequestDto request) {
-        Product product = new Product();
-        applyFields(product, request);
+        Product product = productCreatorFactory.creatorFor(request.category()).createProduct(request);
+        syncCoverImage(product, request);
         return toDto(productRepository.save(product));
     }
 
@@ -95,7 +116,8 @@ public class ProductService {
      */
     public ProductDto updateProduct(Long id, ProductRequestDto request) {
         Product product = findProductOrThrow(id);
-        applyFields(product, request);
+        productCreatorFactory.creatorFor(request.category()).applyCommonFields(product, request);
+        syncCoverImage(product, request);
         return toDto(productRepository.save(product));
     }
 
@@ -107,6 +129,12 @@ public class ProductService {
      * But if the product appears in any past order, the delete is refused
      * with a clear message instead of failing with a raw database error or
      * silently corrupting order history.
+     * <p>
+     * If this was the last remaining size for its style+colour, that
+     * colour's whole photo gallery (and its Cloudinary files) is cleaned
+     * up too, since nothing would reference those photos anymore. If other
+     * sizes of the same colour still exist, the gallery is left alone
+     * since they still display it.
      *
      * @param id product variant's database ID
      * @throws ResourceNotFoundException if no product exists with this ID
@@ -115,6 +143,8 @@ public class ProductService {
     @Transactional
     public void deleteProduct(Long id) {
         Product product = findProductOrThrow(id);
+        String styleCode = product.getStyleCode();
+        String colour = product.getColour();
 
         cartItemRepository.deleteByProductId(id);
         try {
@@ -126,52 +156,31 @@ public class ProductService {
                             + ") can't be deleted because it appears in past orders. "
                             + "Set its stock to 0 instead to hide it from the shop.");
         }
+
+        boolean colourStillInUse = !productRepository.search(styleCode, colour, null).isEmpty();
+        if (!colourStillInUse) {
+            productImageService.deleteAllImagesForStyleAndColour(styleCode, colour);
+        }
     }
 
     /**
-     * Copies a request's fields onto a product entity, shared by create
-     * and update so an edit applies exactly the same rules a fresh
-     * creation would.
+     * Syncs {@code imageUrl} from the product's photo gallery if one
+     * already exists, since the cover photo now comes from the gallery
+     * (see {@code ProductGalleryEditor} on the frontend) rather than being
+     * set manually. Falls back to whatever the request explicitly
+     * provided if no gallery cover exists yet.
      * <p>
-     * In the future, this  method is replaced with {@code ProductCreator} and
-     * {@code ProductCreatorFactory}, moving the size rule below into
-     * category-specific subclasses. Keep the behaviour identical so the
-     * refactor is provably behaviour-preserving.
+     * Every other field is already set by this point — by
+     * {@link ProductCreator#createProduct} for a new product, or
+     * {@link ProductCreator#applyCommonFields} for an update — so this
+     * only ever touches {@code imageUrl}.
      *
-     * @param product the entity to update in place
+     * @param product the entity to update
      * @param request the incoming request data
-     * @throws IllegalArgumentException if this category requires a size and none was given
      */
-    private void applyFields(Product product, ProductRequestDto request) {
-        product.setStyleCode(request.styleCode());
-        product.setName(request.name());
-        product.setCategory(request.category());
-        product.setSubCategory(request.subCategory());
-        product.setPrice(request.price());
-        product.setColour(request.colour());
-        product.setStockQty(request.stockQty());
-        product.setDescription(request.description());
-        product.setImageUrl(request.imageUrl());
-        product.setSize(resolveSize(request));
-    }
-
-    /**
-     * Decides what this variant's {@code size} should hold: accessories
-     * fall back to "One Size", apparel must state one explicitly.
-     *
-     * @param request the incoming create/update request
-     * @return the size value to store
-     * @throws IllegalArgumentException if this category requires a size and none was given
-     */
-    private String resolveSize(ProductRequestDto request) {
-        String size = request.size() == null ? "" : request.size().trim();
-        if (request.category() == ProductCategory.ACCESSORIES) {
-            return size.isEmpty() ? "One Size" : size;
-        }
-        if (size.isEmpty()) {
-            throw new IllegalArgumentException("Size is required for " + request.category() + " products");
-        }
-        return size;
+    private void syncCoverImage(Product product, ProductRequestDto request) {
+        product.setImageUrl(productImageService.getCoverImageUrl(request.styleCode(), request.colour())
+                .orElse(request.imageUrl()));
     }
 
     /**
@@ -195,6 +204,6 @@ public class ProductService {
     private ProductDto toDto(Product p) {
         return new ProductDto(p.getId(), p.getStyleCode(), p.getName(), p.getCategory(), p.getSubCategory(),
                 p.getPrice(), p.getColour(), p.getSize(), p.getStockQty(), p.getImageUrl(), p.getDescription(),
-                p.getCreatedAt());
+                p.getStatus(), p.isShowPrice(), p.getCreatedAt());
     }
 }
