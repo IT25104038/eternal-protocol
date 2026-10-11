@@ -1,35 +1,34 @@
 package com.eternalprotocol.api.controller;
 
-// MILESTONE 1 SCOPE — one public endpoint: validate-code.
-// Deferred to Milestone 2: GET /api/athletes/dashboard, and the CurrentUser
-// dependency it needs (validate-code is public and needs no logged-in user).
-
 import com.eternalprotocol.api.dto.AthleteCodeValidationDto;
+import com.eternalprotocol.api.dto.AthleteDashboardDto;
+import com.eternalprotocol.api.security.CurrentUser;
 import com.eternalprotocol.api.service.AthleteService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * REST endpoint for validating discount codes.
+ * REST endpoints for validating discount codes and an athlete's own
+ * dashboard.
  * <p>
- * Athlete account management (create/update by an admin) lives in
- * {@code AdminController} instead, since those actions are performed by an
- * admin, not by the athlete themself.
+ * Athlete account management (create/update/deactivate by an admin) lives
+ * in {@link AdminController} instead, since those actions are performed by
+ * an admin, not by the athlete themself.
  */
 @RestController
 @RequestMapping("/api/athletes")
 public class AthleteController {
 
     private final AthleteService athleteService;
+    private final CurrentUser currentUser;
 
     /**
-     * MILESTONE 2 adds {@code CurrentUser} to this constructor, to resolve
-     * the logged-in athlete's ID for {@code getDashboard()}.
-     *
-     * @param athleteService code validation logic
+     * @param athleteService code validation and dashboard logic
+     * @param currentUser    resolves the logged-in athlete's ID from the JWT
      */
-    public AthleteController(AthleteService athleteService) {
+    public AthleteController(AthleteService athleteService, CurrentUser currentUser) {
         this.athleteService = athleteService;
+        this.currentUser = currentUser;
     }
 
     /**
@@ -45,8 +44,16 @@ public class AthleteController {
         return ResponseEntity.ok(athleteService.validateCode(code));
     }
 
-    // ------------------------------------------------------------------
-    // MILESTONE 2:
-    //   GET /api/athletes/dashboard   getDashboard()   (ATHLETE only)
-    // ------------------------------------------------------------------
+    /**
+     * Athlete-only. Gets the logged-in athlete's own dashboard: their
+     * order and commission totals. The athlete's ID always comes from the
+     * JWT via {@link CurrentUser}, never from a path variable, so an
+     * athlete can't view another athlete's dashboard by guessing an ID.
+     *
+     * @return the logged-in athlete's dashboard data
+     */
+    @GetMapping("/dashboard")
+    public ResponseEntity<AthleteDashboardDto> getDashboard() {
+        return ResponseEntity.ok(athleteService.getDashboard(currentUser.id()));
+    }
 }

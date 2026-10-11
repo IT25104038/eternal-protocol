@@ -1,12 +1,6 @@
 package com.eternalprotocol.api.controller;
 
-// MILESTONE 1 SCOPE — four endpoints: list/create/update athletes, list orders.
-// Deferred to Milestone 2: the two commission endpoints.
-
-import com.eternalprotocol.api.dto.AdminOrderDto;
-import com.eternalprotocol.api.dto.AthleteDto;
-import com.eternalprotocol.api.dto.CreateAthleteRequestDto;
-import com.eternalprotocol.api.dto.UpdateAthleteRequestDto;
+import com.eternalprotocol.api.dto.*;
 import com.eternalprotocol.api.service.AthleteService;
 import com.eternalprotocol.api.service.OrderService;
 import jakarta.validation.Valid;
@@ -16,17 +10,16 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * REST endpoints for the admin dashboard: viewing all orders and managing
- * athletes.
+ * REST endpoints for the admin dashboard: viewing all orders, managing
+ * athletes, and tracking commission payouts.
  * <p>
  * Every endpoint here requires the ADMIN role. This is enforced centrally
  * in {@code SecurityConfig} for the whole {@code /api/admin/**} path,
- * rather than being checked in each individual method.
+ * rather than being checked in each individual method, so there's a
+ * single, easy-to-find place that defines "what needs admin access."
  * <p>
- * Product management lives in {@code ProductController} instead, since
- * that controller also serves the public storefront's read endpoints. Order
- * listing lives on Chamod's {@code OrderService} — this class calls it but
- * doesn't own it, since it queries {@code OrderRepository}.
+ * Product management lives in {@link ProductController} instead, since
+ * that controller also serves the public storefront's read endpoints.
  */
 @RestController
 @RequestMapping("/api/admin")
@@ -36,8 +29,8 @@ public class AdminController {
     private final AthleteService athleteService;
 
     /**
-     * @param orderService   order listing logic (Chamod's module)
-     * @param athleteService athlete management logic
+     * @param orderService   order listing logic
+     * @param athleteService athlete and commission management logic
      */
     public AdminController(OrderService orderService, AthleteService athleteService) {
         this.orderService = orderService;
@@ -90,9 +83,25 @@ public class AdminController {
         return ResponseEntity.ok(athleteService.updateAthlete(id, request));
     }
 
-    // ------------------------------------------------------------------
-    // MILESTONE 2:
-    //   GET /api/admin/commissions              getAllCommissions()
-    //   PUT /api/admin/commissions/{id}/mark-paid  markCommissionPaid()
-    // ------------------------------------------------------------------
+    /**
+     * Gets every commission in the system, optionally filtered by status.
+     *
+     * @param status commission status to filter by (e.g. "EARNED"), optional
+     * @return matching commissions
+     */
+    @GetMapping("/commissions")
+    public ResponseEntity<List<CommissionDto>> getAllCommissions(@RequestParam(required = false) String status) {
+        return ResponseEntity.ok(athleteService.getAllCommissions(status));
+    }
+
+    /**
+     * Marks one commission as paid out to its athlete.
+     *
+     * @param id commission's database ID
+     * @return the updated commission
+     */
+    @PutMapping("/commissions/{id}/mark-paid")
+    public ResponseEntity<CommissionDto> markCommissionPaid(@PathVariable Long id) {
+        return ResponseEntity.ok(athleteService.markCommissionPaid(id));
+    }
 }
