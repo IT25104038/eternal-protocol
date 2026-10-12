@@ -1,6 +1,3 @@
-// MILESTONE 1 SCOPE
-// Deferred to Milestone 2: the PayHere handoff
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -39,7 +36,6 @@ export function CheckoutPage() {
 
   const directBuy = (location.state as DirectBuyState | null)?.directBuy
 
-  // "Buy now" carries just a productId/quantity in nav state — resolve it to a full line
   const { data: directProduct } = useQuery({
     queryKey: ['product', directBuy?.productId],
     queryFn: () => productsApi.get(directBuy!.productId),
@@ -52,9 +48,6 @@ export function CheckoutPage() {
     enabled: role === 'CUSTOMER' && !directBuy,
   })
 
-  // Pre fill the delivery fields below from the account's saved details for
-  // a logged-in customer — same ['profile'] cache ProfilePage uses, so this
-  // is instant if they've already visited My Account this session.
   const { data: profile } = useQuery({
     queryKey: ['profile'],
     queryFn: customersApi.me,
@@ -103,10 +96,8 @@ export function CheckoutPage() {
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
 
-  // Runs once, the first time the profile arrives — not on every refetch —
-  // so a background refetch (e.g. tab refocus) can't stomp on something the
-  // customer has already typed or edited on this form.
-
+ // Executes only on the initial profile load, rather than on every refetch
+ // This prevents background updates from overwriting active user edits on the form
   const hasPrefilled = useRef(false)
   useEffect(() => {
     if (!profile || hasPrefilled.current) return
@@ -172,13 +163,11 @@ export function CheckoutPage() {
         athleteCode: athleteCode.trim() || undefined,
       })
 
-      // The backend clears a logged in customer's server cart automatically on order
-      // creation; the guest cart is entirely client side, so we clear it ourselves
       if (role !== 'CUSTOMER' && !directBuy) {
         guestCart.clear()
       }
 
-      navigate(`/order/${order.orderId}/confirmation`)
+      window.location.href = order.paymentUrl
     } catch (err) {
       pushToast(getErrorMessage(err), 'error')
       setSubmitting(false)
