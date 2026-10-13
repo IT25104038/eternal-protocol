@@ -1,13 +1,10 @@
-// MILESTONE 1 SCOPE — three tabs.
-// Deferred to Milestone 2: the Commissions tab.
-
 import { NavLink } from 'react-router-dom'
 
 const links = [
   { to: '/admin/products', label: 'Products' },
   { to: '/admin/orders', label: 'Orders' },
   { to: '/admin/athletes', label: 'Athletes' },
-  // MILESTONE 2: { to: '/admin/commissions', label: 'Commissions' },
+  { to: '/admin/commissions', label: 'Commissions' },
 ]
 
 export function AdminNav() {

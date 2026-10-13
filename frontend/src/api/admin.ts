@@ -1,8 +1,13 @@
-// MILESTONE 1 SCOPE — order listing and athlete CRUD.
-// Deferred to Milestone 2: the commissions calls.
-
 import { apiClient } from './client'
-import type { AdminOrderDto, AthleteDto, CreateAthleteInput, PaymentStatus, UpdateAthleteInput } from '@/types'
+import type {
+  AdminOrderDto,
+  AthleteDto,
+  CommissionDto,
+  CommissionStatus,
+  CreateAthleteInput,
+  PaymentStatus,
+  UpdateAthleteInput,
+} from '@/types'
 
 export const adminApi = {
   orders: {
@@ -21,7 +26,13 @@ export const adminApi = {
       apiClient.put<AthleteDto>(`/api/admin/athletes/${id}`, input).then((r) => r.data),
   },
 
-  // ----------------------------------------------------------------
-  // MILESTONE 2 — commissions: { list, markPaid }
-  // ----------------------------------------------------------------
+  commissions: {
+    list: (status?: CommissionStatus) =>
+      apiClient
+        .get<CommissionDto[]>('/api/admin/commissions', { params: status ? { status } : {} })
+        .then((r) => r.data),
+
+    markPaid: (id: number) =>
+      apiClient.put<CommissionDto>(`/api/admin/commissions/${id}/mark-paid`).then((r) => r.data),
+  },
 }
