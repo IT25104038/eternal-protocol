@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { productsApi } from '@/api/products'
@@ -8,6 +8,7 @@ import { useGuestCartStore } from '@/stores/cart'
 import { useToastStore } from '@/stores/toast'
 import { Button } from '@/components/ui/Button'
 import { Price } from '@/components/ui/Price'
+import { ProductImageCarousel } from '@/components/ui/ProductImageCarousel'
 import { getErrorMessage } from '@/api/client'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
@@ -34,10 +35,33 @@ export function ProductDetailPage() {
     enabled: !!product?.styleCode,
   })
 
+  // Full photo gallery for this style, every colour — grouped client-side so
+  // the carousel can swap its whole image set the moment the colour changes.
+  const { data: galleryImages } = useQuery({
+    queryKey: ['product-images', product?.styleCode],
+    queryFn: () => productsApi.imagesByStyle(product!.styleCode),
+    enabled: !!product?.styleCode,
+  })
+
   const [selectedColour, setSelectedColour] = useState<string | null>(null)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
+  const [activeImageIndex, setActiveImageIndex] = useState(0)
 
   const colour = selectedColour ?? product?.colour ?? ''
+
+  const imagesByColour = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const img of galleryImages ?? []) {
+      ;(map[img.colour] ??= []).push(img.imageUrl)
+    }
+    return map
+  }, [galleryImages])
+
+  // Reset to the first photo whenever the shopper picks a different colour —
+  // otherwise they'd land on e.g. frame 3 of a set that might only have 2.
+  useEffect(() => {
+    setActiveImageIndex(0)
+  }, [colour])
 
   if (isLoading) {
     return <div className="mx-auto max-w-7xl px-4 py-20 text-sm text-ep-muted">Loading…</div>
@@ -51,9 +75,18 @@ export function ProductDetailPage() {
   const sizes = Array.from(new Set((variants ?? [product]).map((v) => v.size)))
   const activeVariant =
     (variants ?? [product]).find((v) => v.colour === colour && v.size === size) ?? product
-  // In the future, we will reintroduces the COMING_SOON check here, which also gates
-  // the price display and the purchase buttons below.
-  const purchaseDisabled = activeVariant.stockQty < 1
+  const isComingSoon = activeVariant.status === 'COMING_SOON'
+  const outOfStock = !isComingSoon && activeVariant.stockQty < 1
+  const purchaseDisabled = isComingSoon || outOfStock
+
+  // Fall back to the variant's single cover image if the gallery hasn't loaded
+  // yet, or if this colour has no gallery rows (e.g. legacy product created
+  // before the gallery feature — imageUrl still works as a single-image set).
+  const carouselImages = imagesByColour[colour]?.length
+    ? imagesByColour[colour]
+    : activeVariant.imageUrl
+      ? [activeVariant.imageUrl]
+      : []
 
   async function handleAddToCart() {
     if (purchaseDisabled) return
@@ -85,25 +118,18 @@ export function ProductDetailPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="grid gap-10 lg:grid-cols-2">
-        {/* MILESTONE 2 replaces this single image with ProductImageCarousel,
-            fed by the per-colour gallery from GET /api/products/style/{code}/images. */}
-        <div className="aspect-[4/5] overflow-hidden border border-ep-border bg-ep-surface">
-          {activeVariant.imageUrl ? (
-            <img
-              src={activeVariant.imageUrl}
-              alt={`${product.name} — ${colour}`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-ep-muted">
-              No image
-            </div>
-          )}
-        </div>
+        <ProductImageCarousel
+          images={carouselImages}
+          alt={`${product.name} — ${colour}`}
+          activeIndex={activeImageIndex}
+          onChange={setActiveImageIndex}
+        />
 
         <div>
           <h1 className="font-display text-4xl">{product.name}</h1>
-          <Price amount={activeVariant.price} className="mt-3 block text-lg" />
+          {(!isComingSoon || activeVariant.showPrice) && (
+            <Price amount={activeVariant.price} className="mt-3 block text-lg" />
+          )}
 
           <div className="mt-8">
             <div className="mb-2 text-xs uppercase tracking-widest text-ep-muted">Colour — {colour}</div>
@@ -140,7 +166,9 @@ export function ProductDetailPage() {
           </div>
 
           <div className="mt-6 text-sm">
-            {purchaseDisabled ? (
+            {isComingSoon ? (
+              <span className="text-ep-bone">Coming soon — not yet available to order</span>
+            ) : outOfStock ? (
               <span className="text-red-400">Out of stock in this colour/size</span>
             ) : activeVariant.stockQty <= 5 ? (
               <span className="text-amber-400">Only {activeVariant.stockQty} left</span>
@@ -151,10 +179,10 @@ export function ProductDetailPage() {
 
           <div className="mt-8 flex gap-3">
             <Button onClick={handleAddToCart} loading={adding} disabled={purchaseDisabled} variant="secondary" className="flex-1">
-              Add to cart
+              {isComingSoon ? 'Coming soon' : 'Add to cart'}
             </Button>
             <Button onClick={handleBuyNow} disabled={purchaseDisabled} className="flex-1">
-              Buy now
+              {isComingSoon ? 'Coming soon' : 'Buy now'}
             </Button>
           </div>
 
