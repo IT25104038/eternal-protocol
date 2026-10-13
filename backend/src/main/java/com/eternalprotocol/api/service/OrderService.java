@@ -1,26 +1,15 @@
 package com.eternalprotocol.api.service;
 
-
-import com.eternalprotocol.api.dto.OrderDetailDto;
-import com.eternalprotocol.api.dto.OrderItemRequestDto;
-import com.eternalprotocol.api.dto.OrderLineItemDto;
-import com.eternalprotocol.api.dto.OrderRequestDto;
-import com.eternalprotocol.api.dto.OrderResponseDto;
-import com.eternalprotocol.api.entity.Athlete;
-import com.eternalprotocol.api.entity.Commission;
-import com.eternalprotocol.api.entity.Customer;
-import com.eternalprotocol.api.dto.AdminOrderDto;
-import com.eternalprotocol.api.entity.Order;
-import com.eternalprotocol.api.entity.OrderItem;
-import com.eternalprotocol.api.entity.OrderStatus;
-import com.eternalprotocol.api.entity.Product;
+import com.eternalprotocol.api.dto.*;
+import com.eternalprotocol.api.entity.*;
 import com.eternalprotocol.api.exception.InsufficientStockException;
+import com.eternalprotocol.api.exception.ProductNotAvailableException;
 import com.eternalprotocol.api.exception.ResourceNotFoundException;
-import com.eternalprotocol.api.repository.AthleteRepository;
-import com.eternalprotocol.api.repository.CommissionRepository;
-import com.eternalprotocol.api.repository.CustomerRepository;
-import com.eternalprotocol.api.repository.OrderRepository;
-import com.eternalprotocol.api.repository.ProductRepository;
+import com.eternalprotocol.api.factory.CustomerFactory;
+import com.eternalprotocol.api.referral.AppliedAthleteReferral;
+import com.eternalprotocol.api.referral.AthleteReferral;
+import com.eternalprotocol.api.referral.NoAthleteReferral;
+import com.eternalprotocol.api.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +22,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Handles the business logic for placing new orders and retrieving order history
+ * Service for managing order creation, PayHere payment confirmation, and order history retrieval
+ * <p>
+ * Read operations are annotated with {@code @Transactional(readOnly = true)} to maintain an 
+ * active database session during DTO mapping. With {@code open-in-view: false}, this ensures 
+ * lazy associations {@code order.getItems()} are safely initialized, preventing 
+ * {@code LazyInitializationException}s during real requests
  */
 
 @Service
@@ -41,56 +35,55 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
-    private final CustomerRepository customerRepository;
+    private final CustomerFactory customerFactory;
     private final AthleteRepository athleteRepository;
     private final CommissionRepository commissionRepository;
     private final CartService cartService;
+    private final PaymentService paymentService;
 
-   /**
- * @param orderRepository      access to order data
- * @param productRepository    access to product data for stock checks and pricing
- * @param customerRepository   fetches the logged in customer or creates a guest account
- * @param athleteRepository    looks up athlete discount codes
- * @param commissionRepository saves commissions earned from athlete codes 
- * @param cartService          clears the customer's saved cart after checkout
- */
+    /**
+     * @param orderRepository  order repository
+     * @param productRepository  product repository
+     * @param customerFactory   customer factory
+     * @param athleteRepository athlete repository
+     * @param commissionRepository commission repository
+     * @param cartService  cart service
+     * @param paymentService  payment service
+     */
 
     public OrderService(OrderRepository orderRepository,
                          ProductRepository productRepository,
-                         CustomerRepository customerRepository,
+                         CustomerFactory customerFactory,
                          AthleteRepository athleteRepository,
                          CommissionRepository commissionRepository,
-                         CartService cartService) {
+                         CartService cartService,
+                         PaymentService paymentService) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
-        this.customerRepository = customerRepository;
+        this.customerFactory = customerFactory;
         this.athleteRepository = athleteRepository;
         this.commissionRepository = commissionRepository;
         this.cartService = cartService;
+        this.paymentService = paymentService;
     }
 
     /**
-    * Places a new order by validating stock, applying any athlete discounts, 
-    * saving the order details, and recording commissions
+     * Processes a new order checkout, handling stock validation, athlete discounts, 
+     * stock reservation, and PayHere payment initialization
      * <p>
-    * This works for both guests and logged in customers. If {@code loggedInCustomerId} 
-    * is null , a new {@code Customer} record is created specifically 
-    * for this order
-    * <p>
-    *
-    * @param request            checkout details 
-    * @param loggedInCustomerId the loggedin user's ID, or null for guests
-    * @return the new order's ID and final total
-    * @throws ResourceNotFoundException  if the product or customer cannot be found
-    * @throws InsufficientStockException if an item is out of stock
-    */
+     * Consolidates all requested items into a single order and payment transaction
+     * Supports both authenticated and guest checkouts via customer resolution
+     *
+     * @param request  checkout request details
+     * @param loggedInCustomerId ID of the authenticated customer
+     * @return order creation response containing the ID, total and PayHere payment URL
+     * @throws ResourceNotFoundException    if a requested product or the authenticated customer is not found
+     * @throws InsufficientStockException   if any requested item exceeds available stock
+     * @throws ProductNotAvailableException if any requested item is unavailable for purchase
+     */
 
     @Transactional
     public OrderResponseDto createOrder(OrderRequestDto request, Long loggedInCustomerId) {
-
-        // Validate stock for all items upfront. If even one item is out of stock, 
-        // the entire order should fail cleanly before any changes are saved
-
         Map<Long, Product> productsById = new HashMap<>();
         List<String> insufficientStockMessages = new ArrayList<>();
 
@@ -98,6 +91,11 @@ public class OrderService {
             Product product = productRepository.findById(itemRequest.productId())
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + itemRequest.productId()));
             productsById.put(itemRequest.productId(), product);
+
+            if (product.getStatus() == ProductStatus.COMING_SOON) {
+                throw new ProductNotAvailableException(
+                        "\"" + product.getName() + "\" hasn't launched yet and can't be ordered.");
+            }
 
             if (product.getStockQty() == null || product.getStockQty() < itemRequest.quantity()) {
                 insufficientStockMessages.add("\"" + product.getName() + "\" (" + itemRequest.colour() + "/" + itemRequest.size() + ")"
@@ -111,42 +109,19 @@ public class OrderService {
                     "Not enough stock for: " + String.join("; ", insufficientStockMessages));
         }
 
-        // Reuse the logged in account if present, otherwise create a
-        // fresh guest row
         
-        Customer customer;
-        if (loggedInCustomerId != null) {
-            customer = customerRepository.findById(loggedInCustomerId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + loggedInCustomerId));
-        } else {
-            customer = new Customer(request.customerName(), request.phone(), request.address());
-            customer = customerRepository.save(customer);
-        }
+        AthleteReferral referral = resolveReferral(request.athleteCode());
+
+        Customer customer = customerFactory.resolveForCheckout(loggedInCustomerId, request);
 
         BigDecimal subtotal = request.items().stream()
                 .map(item -> productsById.get(item.productId()).getPrice()
                         .multiply(BigDecimal.valueOf(item.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Athlete code, if any, applies once to the whole order
-        // replaces this block with AthleteReferral,
-        // so nothing here needs an "if there was an athlete" check
+        BigDecimal discount = referral.calculateDiscount(subtotal);
 
-        String athleteCode = null;
-        BigDecimal discount = BigDecimal.ZERO;
-        Athlete athlete = null;
-        if (request.athleteCode() != null && !request.athleteCode().isBlank()) {
-            athlete = athleteRepository.findByAthleteCodeIgnoreCase(request.athleteCode())
-                    .filter(Athlete::isActive)
-                    .orElse(null);
-            if (athlete != null) {
-                athleteCode = athlete.getAthleteCode();
-                discount = subtotal.multiply(athlete.getCommissionRate())
-                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-            }
-        }
-
-        Order order = new Order(customer, subtotal, discount, athleteCode);
+        Order order = new Order(customer, subtotal, discount, referral.athleteCodeForOrder());
 
         for (OrderItemRequestDto itemRequest : request.items()) {
             Product product = productsById.get(itemRequest.productId());
@@ -156,49 +131,60 @@ public class OrderService {
 
         order = orderRepository.save(order);
 
-        // Reserve stock at order creation time , not
-        // on payment confirmation — a known read then-write race, kept
-        // unchanged from the original
-        
         for (OrderItemRequestDto itemRequest : request.items()) {
             Product product = productsById.get(itemRequest.productId());
             product.setStockQty(product.getStockQty() - itemRequest.quantity());
             productRepository.save(product);
         }
 
-        // A real athlete referral always earns a commission
+        referral.recordCommission(commissionRepository, order, discount);
 
-        if (athlete != null) {
-            Commission commission = new Commission(athlete, order, discount);
-            
-            commission.setCommissionStatus(com.eternalprotocol.api.entity.CommissionStatus.EARNED);
-            commissionRepository.save(commission);
-        }
-
-        // Clear the persisted cart so items just bought don't still show
-        
         if (loggedInCustomerId != null) {
             cartService.clearCart(loggedInCustomerId);
         }
 
-        // calls PaymentService.initiatePayment() here instead
-        // and returns its redirect URL. Milestone 1 has no payment gateway,
-        // so the order is marked paid immediately
+        String paymentUrl = paymentService.initiatePayment(order, order.getTotalAmount());
 
-        order.setPaymentStatus(OrderStatus.PAID);
-        order = orderRepository.save(order);
-
-        return new OrderResponseDto(order.getId(), order.getTotalAmount());
+        return new OrderResponseDto(order.getId(), order.getTotalAmount(), paymentUrl);
     }
 
     /**
-     * Gets full details of a single order, used for the order confirmation
-     * page
+     * Marks an order as paid upon PayHere payment confirmation
+     * <p>
+     * Intended for use by the PayHere webhook. Assumes the webhook signature has 
+     * already been verified by the caller. This operation is idempotent to safely 
+     * accommodate duplicate webhook dispatches
      *
-     * @param orderId order's database ID
-     * @return the order's full details
-     * @throws ResourceNotFoundException if no order exists with this ID
+     * @param orderId order ID
+     * @throws ResourceNotFoundException if the order is not found
      */
+
+    @Transactional
+    public void confirmPayment(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+
+        if (order.getPaymentStatus() == OrderStatus.PAID) {
+            return; 
+        }
+
+        order.setPaymentStatus(OrderStatus.PAID);
+        orderRepository.save(order);
+
+        commissionRepository.findByOrderId(order.getId()).ifPresent(commission -> {
+            commission.setCommissionStatus(CommissionStatus.EARNED);
+            commissionRepository.save(commission);
+        });
+    }
+
+    /**
+     * Retrieves the full details of a specific order for the order confirmation page
+     *
+     * @param orderId order ID
+     * @return order details
+     * @throws ResourceNotFoundException if the order is not found
+     */
+
     @Transactional(readOnly = true)
     public OrderDetailDto getOrderDetail(Long orderId) {
         return toDetailDto(orderRepository.findById(orderId)
@@ -206,13 +192,12 @@ public class OrderService {
     }
 
     /**
-     * Gets a customer's order history, most recent first
-     * <p>
-     * calls this from {@code CustomerController.getOrderHistory}
+     * Retrieves a customer's order history, sorted by most recent first
      *
-     * @param customerId customer's database ID
-     * @return that customer's orders, newest first
+     * @param customerId customer ID
+     * @return ordered from newest to oldest
      */
+
     @Transactional(readOnly = true)
     public List<OrderDetailDto> getOrdersForCustomer(Long customerId) {
         return orderRepository.findByCustomerIdOrderByOrderDateDesc(customerId).stream()
@@ -221,9 +206,29 @@ public class OrderService {
     }
 
     /**
-     *  {@code AdminController}
+     * Generates the self submitting PayHere checkout HTML for a specific order
+     * <p>
+     * Executed within a single transaction to ensure lazy associations (such as 
+     * {@code order.getItems()} and {@code order.getCustomer()}) are safely 
+     * initialized before generating the payment payload, as detailed in the class documentation
      *
-     * @param statusFilter payment status name to filter 
+     * @param orderId order ID
+     * @return complete checkout HTML string
+     * @throws ResourceNotFoundException if the order is not found
+     */
+
+    @Transactional(readOnly = true)
+    public String buildCheckoutRedirectHtml(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+        return paymentService.buildCheckoutFormHtml(order);
+    }
+
+   /**
+     * Retrieves all orders for the admin dashboard, optionally filtered by payment status 
+     * and sorted by most recent first
+     *
+     * @param statusFilter payment status to filter 
      * @return matching orders
      */
 
@@ -240,12 +245,47 @@ public class OrderService {
     }
 
     /**
-     * Converts a database entity into its public facing DTO shape for the
-     * admin order list.
+     * Resolves the athlete referral for a checkout, returning a non null 
+     * {@link AthleteReferral} to eliminate explicit null checks
+     * <p>
+     * Blank, missing or invalid codes safely resolve to the 
+     * {@link NoAthleteReferral#INSTANCE} singleton, ensuring the checkout 
+     * process proceeds without failure
      *
-     * @param o the entity to convert
-     * @return the equivalent DTO
+     * @param athleteCode athlete code submitted at checkout 
+     * @return resolved {@link AthleteReferral} implementation
      */
+
+    private AthleteReferral resolveReferral(String athleteCode) {
+        if (athleteCode == null || athleteCode.isBlank()) {
+            return NoAthleteReferral.INSTANCE;
+        }
+        return athleteRepository.findByAthleteCodeIgnoreCase(athleteCode)
+                .filter(Athlete::isActive)
+                .<AthleteReferral>map(AppliedAthleteReferral::new)
+                .orElse(NoAthleteReferral.INSTANCE);
+    }
+
+    /**
+     * Maps a database entity to its public facing DTO representation
+     *
+     * @param o entity to map
+     * @return corresponding DTO
+     */
+
+    private OrderDetailDto toDetailDto(Order o) {
+        return new OrderDetailDto(
+                o.getId(), toLineItemDtos(o), o.getSubtotalAmount(), o.getDiscountAmount(), o.getTotalAmount(),
+                o.getPaymentStatus().name(), o.getAthleteCode(), o.getOrderDate());
+    }
+
+    /**
+     * Maps a database entity to its public facing DTO representation for the admin order list
+     *
+     * @param o entity to map
+     * @return corresponding DTO
+     */
+
     private AdminOrderDto toAdminDto(Order o) {
         return new AdminOrderDto(
                 o.getId(), o.getCustomer().getName(), o.getCustomer().getPhone(), o.getCustomer().getAddress(),
@@ -254,26 +294,15 @@ public class OrderService {
     }
 
     /**
-     * Converts a database entity into its public facing DTO shape
+     * Maps an order's items to their DTO representations
+     * <p>
+     * Defined as package private and static to centralize line item mapping logic, 
+     * allowing reuse by {@link AthleteService#getDashboard}
      *
-     * @param o the entity to convert
-     * @return the equivalent DTO
+     * @param o order containing the items to map
+     * @return mapped order item DTOs
      */
-    private OrderDetailDto toDetailDto(Order o) {
-        return new OrderDetailDto(
-                o.getId(), toLineItemDtos(o), o.getSubtotalAmount(), o.getDiscountAmount(), o.getTotalAmount(),
-                o.getPaymentStatus().name(), o.getAthleteCode(), o.getOrderDate());
-    }
 
-    /**
-     * Converts an order's items into their DTO shape. Package private and
-     * {@code AdminController} 
-     * {@code AthleteService}  
-     * line item mapping instead of duplicating it
-     *
-     * @param o the order whose items should be converted
-     * @return the order's items as DTOs
-     */
     static List<OrderLineItemDto> toLineItemDtos(Order o) {
         return o.getItems().stream()
                 .map(i -> new OrderLineItemDto(

@@ -1,18 +1,17 @@
-// MILESTONE 1 SCOPE.
-// Deferred to Milestone 2: merging the guest cart into the server cart on
-// register — see the comment in the submit handler below.
-
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { useAuthStore, landingRouteForRole } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import { getErrorMessage } from '@/api/client'
+import { mergeGuestCartIntoServer } from '@/features/cart/mergeGuestCart'
 import { Button } from '@/components/ui/Button'
 import { FormInput } from '@/components/ui/FormField'
 
 export function RegisterPage() {
   const navigate = useNavigate()
   const setSession = useAuthStore((s) => s.setSession)
+  const pushToast = useToastStore((s) => s.push)
 
   const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', address: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -49,10 +48,9 @@ export function RegisterPage() {
         address: form.address.trim(),
       })
       setSession(auth)
-      // MILESTONE 2 folds the guest cart into the server cart here, via
-      // mergeGuestCartIntoServer(). Milestone 1 leaves the two carts
-      // separate — a customer's guest-cart items don't carry over on
-      // register, same as on login.
+      await mergeGuestCartIntoServer().catch(() => {
+        pushToast('Account created, but some cart items may not have synced. Check your cart.', 'info')
+      })
       navigate(landingRouteForRole(auth.role), { replace: true })
     } catch (err) {
       setSubmitError(getErrorMessage(err, 'Could not create your account.'))
