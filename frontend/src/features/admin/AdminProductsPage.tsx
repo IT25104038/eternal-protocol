@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/Button'
 import { FormInput, FormSelect, FormTextarea } from '@/components/ui/FormField'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Price } from '@/components/ui/Price'
+import { FaStar } from 'react-icons/fa6'
 import { CATEGORY_NAV } from '@/lib/categories'
-import type { ProductDto, ProductInput } from '@/types'
+import type { ProductDto, ProductImageDto, ProductInput } from '@/types'
 
 const emptyForm: ProductInput = {
   styleCode: '',
@@ -21,7 +22,8 @@ const emptyForm: ProductInput = {
   size: '',
   stockQty: 0,
   description: '',
-  imageUrl: '',
+  status: 'ACTIVE',
+  showPrice: true,
 }
 
 export function AdminProductsPage() {
@@ -57,6 +59,15 @@ export function AdminProductsPage() {
     { header: 'Colour', cell: (p) => p.colour },
     { header: 'Size', cell: (p) => p.size },
     { header: 'Price', cell: (p) => <Price amount={p.price} /> },
+    {
+      header: 'Status',
+      cell: (p) =>
+        p.status === 'COMING_SOON' ? (
+          <span className="text-xs uppercase tracking-widest text-amber-400">Coming soon</span>
+        ) : (
+          <span className="text-xs uppercase tracking-widest text-ep-muted">Active</span>
+        ),
+    },
     {
       header: 'Stock',
       cell: (p) => (p.stockQty < 1 ? <span className="text-red-400">0</span> : p.stockQty),
@@ -128,7 +139,8 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
           size: product.size,
           stockQty: product.stockQty,
           description: product.description ?? '',
-          imageUrl: product.imageUrl ?? '',
+          status: product.status,
+          showPrice: product.showPrice,
         }
       : emptyForm,
   )
@@ -246,7 +258,33 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
             onChange={(e) => setForm((f) => ({ ...f, stockQty: Number(e.target.value) }))}
             error={errors.stockQty}
           />
+          <FormSelect
+            label="Status"
+            value={form.status}
+            onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as ProductInput['status'] }))}
+          >
+            <option value="ACTIVE">Active</option>
+            <option value="COMING_SOON">Coming soon</option>
+          </FormSelect>
+          {form.status === 'COMING_SOON' && (
+            <label className="flex items-center gap-2 self-end pb-2 text-sm text-ep-bone">
+              <input
+                type="checkbox"
+                checked={form.showPrice ?? true}
+                onChange={(e) => setForm((f) => ({ ...f, showPrice: e.target.checked }))}
+                className="h-4 w-4 accent-ep-bone"
+              />
+              Show price while coming soon
+            </label>
+          )}
         </div>
+
+        {form.status === 'COMING_SOON' && (
+          <p className="mt-2 text-xs text-ep-muted">
+            Coming soon products only appear on the Upcoming page and can't be added to a cart — switch this back to
+            Active to launch it on the regular shop.
+          </p>
+        )}
 
         <div className="mt-4">
           <FormTextarea
@@ -256,14 +294,14 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
           />
         </div>
 
-        <div className="mt-4">
-          {/* MILESTONE 2 replaces this single URL field with ProductGalleryEditor:
-              multi-photo upload to Cloudinary, cover selection, and reordering. */}
-          <FormInput
-            label="Image URL"
-            value={form.imageUrl ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-          />
+        <div className="mt-6">
+          {form.styleCode.trim() && form.colour.trim() ? (
+            <ProductGalleryEditor styleCode={form.styleCode.trim()} colour={form.colour.trim()} />
+          ) : (
+            <p className="text-xs text-ep-muted">
+              Enter a style code and colour above, then add this colour's photos here.
+            </p>
+          )}
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
@@ -275,6 +313,169 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
           </Button>
         </div>
       </form>
+    </div>
+  )
+}
+
+/**
+ * Manages the carousel photo set for one style+colour. Deliberately
+ * independent of whether the Product row itself has been saved yet — the
+ * gallery is keyed on the (styleCode, colour) strings, not a product id, so
+ * an admin can build out photos for a colour before or after saving sizes
+ * for it. Every add/delete/reorder here also updates that colour's
+ * Product.imageUrl on the backend (see ProductImageService), which is what
+ * keeps the shop-grid thumbnail in sync automatically.
+ */
+function ProductGalleryEditor({ styleCode, colour }: { styleCode: string; colour: string }) {
+  const queryClient = useQueryClient()
+  const pushToast = useToastStore((s) => s.push)
+  const [urlInput, setUrlInput] = useState('')
+
+  const galleryKey = ['product-images', styleCode]
+
+  const { data: allImages, isLoading } = useQuery({
+    queryKey: galleryKey,
+    queryFn: () => productsApi.imagesByStyle(styleCode),
+  })
+
+  const images = (allImages ?? [])
+    .filter((img) => img.colour.toLowerCase() === colour.toLowerCase())
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: galleryKey })
+
+  const removeMutation = useMutation({
+    mutationFn: (imageId: number) => productsApi.removeImage(imageId),
+    onSuccess: invalidate,
+    onError: (err) => pushToast(getErrorMessage(err), 'error'),
+  })
+
+  const setCoverMutation = useMutation({
+    mutationFn: (imageId: number) => productsApi.setCoverImage(imageId),
+    onSuccess: invalidate,
+    onError: (err) => pushToast(getErrorMessage(err), 'error'),
+  })
+
+  const reorderMutation = useMutation({
+    mutationFn: (orderedImageIds: number[]) => productsApi.reorderImages(styleCode, colour, orderedImageIds),
+    onSuccess: invalidate,
+    onError: (err) => pushToast(getErrorMessage(err), 'error'),
+  })
+
+  const addMutation = useMutation({
+    mutationFn: (imageUrl: string) => productsApi.addImage(styleCode, { colour, imageUrl }),
+    onSuccess: () => {
+      setUrlInput('')
+      invalidate()
+    },
+    onError: (err) => pushToast(getErrorMessage(err, 'Failed to add photo'), 'error'),
+  })
+
+  function handleAddUrl() {
+    const url = urlInput.trim()
+    if (!/^(https?:\/\/|\/)/i.test(url)) {
+      pushToast('Enter a full image URL (https://…) or a site path starting with /', 'error')
+      return
+    }
+    addMutation.mutate(url)
+  }
+
+  function move(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= images.length) return
+    const reordered = [...images]
+    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    reorderMutation.mutate(reordered.map((img) => img.id))
+  }
+
+  return (
+    <div>
+      <span className="mb-1.5 block text-xs uppercase tracking-widest text-ep-muted">
+        Photo gallery — {colour} (all sizes)
+      </span>
+      <p className="mb-3 text-xs text-ep-muted">
+        Add this colour's photo URLs once here, then pick one as the cover shown on the shop grid.
+      </p>
+
+      {isLoading ? (
+        <p className="text-xs text-ep-muted">Loading gallery…</p>
+      ) : images.length > 0 ? (
+        <div className="mb-4 flex flex-wrap gap-3">
+          {images.map((img: ProductImageDto, i: number) => (
+            <div key={img.id} className="group relative">
+              <div className="relative h-24 w-20 overflow-hidden bg-ep-surface-2">
+                <img src={img.imageUrl} alt="" className="h-full w-full object-cover" />
+                {img.isCover && (
+                  <span className="absolute left-1 top-1 flex items-center gap-1 bg-ep-black/70 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-ep-bone">
+                    <FaStar className="h-2 w-2" /> Cover
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 flex items-center justify-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                  className="text-[10px] text-ep-muted hover:text-ep-bone disabled:opacity-30"
+                  aria-label="Move earlier"
+                >
+                  ←
+                </button>
+                {!img.isCover && (
+                  <button
+                    type="button"
+                    onClick={() => setCoverMutation.mutate(img.id)}
+                    className="text-[10px] text-ep-muted hover:text-ep-bone"
+                    aria-label="Set as cover photo"
+                    title="Set as cover"
+                  >
+                    <FaStar className="h-2.5 w-2.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeMutation.mutate(img.id)}
+                  className="text-[10px] text-ep-muted hover:text-red-400"
+                  aria-label="Remove photo"
+                >
+                  ✕
+                </button>
+                <button
+                  type="button"
+                  disabled={i === images.length - 1}
+                  onClick={() => move(i, 1)}
+                  className="text-[10px] text-ep-muted hover:text-ep-bone disabled:opacity-30"
+                  aria-label="Move later"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <FormInput
+            label="Photo URL"
+            type="url"
+            placeholder="https://… or /products/photo.jpg"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => {
+              // This editor sits inside the product form — Enter should add the photo, not submit the form.
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAddUrl()
+              }
+            }}
+          />
+        </div>
+        <Button type="button" variant="ghost" loading={addMutation.isPending} onClick={handleAddUrl}>
+          Add photo
+        </Button>
+      </div>
     </div>
   )
 }
