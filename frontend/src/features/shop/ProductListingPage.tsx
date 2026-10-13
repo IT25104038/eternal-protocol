@@ -6,16 +6,22 @@ import { productsApi } from '@/api/products'
 import { ProductCard } from '@/components/ui/ProductCard'
 import { useClickOutside } from '@/lib/useClickOutside'
 import { groupByStyle, sortStyles, sortStylesByNewest, SORT_OPTIONS, type SortKey } from './groupByStyle'
-import type { ProductCategory } from '@/types'
+import type { ProductCategory, ProductStatus } from '@/types'
 
 interface ProductListingPageProps {
-  /** Page heading, e.g. "Men's". */
+  /** Page heading, e.g. "Men's", "New Drops", "Upcoming". */
   heading: string
-  /** Top-level category to scope to, or omit for a cross-category listing. */
+  /** Top-level category to scope to, or omit for a cross-category listing (New Drops, Upcoming). */
   category?: ProductCategory
   /**
+   * Lifecycle status every page must pass explicitly — this is what keeps
+   * COMING_SOON products out of the regular category pages and New Drops,
+   * and out of the Upcoming page once they've launched.
+   */
+  status: ProductStatus
+  /**
    * When true, "Featured" (the default/no-sort option) means newest-first
-   * instead of the API's natural order — In the future, we will use this for New Drops,
+   * instead of the API's natural order — used by New Drops and Upcoming,
    * where recency is the whole point of the page.
    */
   sortNewestFirst?: boolean
@@ -25,10 +31,10 @@ interface ProductListingPageProps {
 
 /**
  * Shared filter/sort/grid chrome behind the MEN'S/WOMEN'S/ACCESSORIES
- * category pages, and in the future, New Drops and Upcoming too — they only
- * differ in which category they fetch and what the page is called.
+ * category pages, New Drops, and Upcoming — they only differ in which
+ * category/status they fetch and what the page is called.
  */
-export function ProductListingPage({ heading, category, sortNewestFirst, emptyMessage }: ProductListingPageProps) {
+export function ProductListingPage({ heading, category, status, sortNewestFirst, emptyMessage }: ProductListingPageProps) {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const subCategory = searchParams.get('subCategory') ?? undefined
@@ -37,16 +43,16 @@ export function ProductListingPage({ heading, category, sortNewestFirst, emptyMe
   const sort = (searchParams.get('sort') as SortKey | null) ?? undefined
 
   const { data: products, isLoading, isError } = useQuery({
-    queryKey: ['products', { category, subCategory, colour, size }],
-    queryFn: () => productsApi.list({ category, subCategory, colour, size }),
+    queryKey: ['products', { category, status, subCategory, colour, size }],
+    queryFn: () => productsApi.list({ category, status, subCategory, colour, size }),
   })
 
-  // Fetched without colour/size (but still scoped to category/subCategory)
+  // Fetched without colour/size (but still scoped to category/status/subCategory)
   // so the Filter dropdown's colour/size options don't shrink to just
   // what's left after a filter is already applied.
   const { data: unfilteredProducts } = useQuery({
-    queryKey: ['products', 'unfiltered', { category, subCategory }],
-    queryFn: () => productsApi.list({ category, subCategory }),
+    queryKey: ['products', 'unfiltered', { category, status, subCategory }],
+    queryFn: () => productsApi.list({ category, status, subCategory }),
   })
   const availableColours = useMemo(
     () => Array.from(new Set((unfilteredProducts ?? []).map((p) => p.colour))).sort(),

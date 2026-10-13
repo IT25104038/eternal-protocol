@@ -11,7 +11,8 @@ export function ShopPage() {
   const category = categoryFromSlug(categorySlug)
   const heading = labelForCategory(category)
 
-  // In the future, we will add status="ACTIVE" here, so that a COMING_SOON product
-  // stays exclusively on the Upcoming page until an admin launches it.
-  return <ProductListingPage heading={heading} category={category} />
+  // Only ACTIVE products ever show in the regular category pages — a
+  // COMING_SOON product stays exclusively on the Upcoming page until an
+  // admin launches it.
+  return <ProductListingPage heading={heading} category={category} status="ACTIVE" />
 }
