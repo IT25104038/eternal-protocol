@@ -74,9 +74,6 @@ public class CartService {
         Product product = productRepository.findById(request.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + request.productId()));
 
-        // MILESTONE 2 rejects a COMING_SOON product here with
-        // ProductNotAvailableException, once ProductStatus exists
-
         CartItem item = cartItemRepository
                 .findByCustomerIdAndProductIdAndSizeAndColour(customerId, request.productId(), request.size(), request.colour())
                 .orElseGet(() -> new CartItem(customer, product, request.size(), request.colour(), 0));

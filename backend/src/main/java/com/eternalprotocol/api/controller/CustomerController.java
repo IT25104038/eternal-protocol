@@ -135,7 +135,6 @@ public class CustomerController {
 
     /**
      * Empties the logged in customer's whole cart
-     * MILESTONE 2: this becomes a MacroCartCommand run through CartInvoker so it can be undone
      *
      * @return the customer's cart, now empty
      */
