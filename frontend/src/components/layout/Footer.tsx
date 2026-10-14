@@ -19,7 +19,7 @@ export function Footer() {
             style={{ filter: 'brightness(0) invert(1)' }}
           />
 
-          <div className="flex flex-col items-center gap-10 sm:flex-row sm:flex-wrap sm:items-start sm:justify-center sm:gap-24 lg:items-start lg:justify-start">
+          <div className="flex flex-col items-center gap-10 text-center sm:flex-row sm:flex-wrap sm:items-start sm:justify-center sm:gap-24 sm:text-left lg:items-start lg:justify-start">
             <div>
               <div className="text-sm font-semibold uppercase tracking-widest text-ep-bone">Shop</div>
               <ul className="mt-4 space-y-2 text-sm">
@@ -59,7 +59,7 @@ export function Footer() {
 
             <div>
               <div className="text-sm font-semibold uppercase tracking-widest text-ep-bone">Follow us</div>
-              <div className="mt-4 flex gap-3">
+              <div className="mt-4 flex justify-center gap-3 sm:justify-start">
                 {socials.map(({ label, href, icon: Icon }) => (
                   <a
                     key={label}
@@ -77,7 +77,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-16 flex flex-col gap-2 border-t border-ep-border pt-6 text-xs text-ep-muted sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-16 flex flex-col gap-2 border-t border-ep-border pt-6 text-center text-xs text-ep-muted sm:flex-row sm:text-left sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} Eternal Protocol. All rights reserved.</span>
           <span>Delivery fee is payable to the courier on delivery.</span>
         </div>
