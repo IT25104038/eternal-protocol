@@ -31,14 +31,15 @@ Open `.env` and fill in:
 | Setting | What to put |
 |---|---|
 | `JWT_SECRET` | Any random text, at least 32 characters |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | From a free [Cloudinary](https://cloudinary.com/users/register/free) account (Dashboard homepage). Needed to upload product photos, and the backend will not start without them |
 | `PAYHERE_MERCHANT_ID` / `PAYHERE_MERCHANT_SECRET` | From a free [PayHere sandbox](https://sandbox.payhere.lk) account |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | Your first admin login (created on first start) |
-`MYSQL_PASSWORD` | The mysql root password
+| `MYSQL_PASSWORD` | The mysql root password |
 
 Then start it:
 
 ```bash
-mvn spring-boot:run "-Dspring-boot.run.profiles=mysql
+mvn spring-boot:run "-Dspring-boot.run.profiles=mysql"
 ```
 The backend runs at http://localhost:8080 
 
@@ -58,4 +59,4 @@ Open http://localhost:5173.
 
 ### 3. First steps
 
-No sample products are included. Log in at `/login` with your admin email and password, then add products at `/admin/products`.
+No sample products are included. Log in at `/login` with your admin email and password, then add products at `/admin/products`. Product photos are uploaded straight from that page (JPEG, PNG, WebP or GIF, up to 5MB each) and stored on Cloudinary.
