@@ -6,6 +6,8 @@ import com.eternalprotocol.api.entity.CartItem;
 import com.eternalprotocol.api.entity.Customer;
 import com.eternalprotocol.api.entity.Product;
 import com.eternalprotocol.api.entity.ProductCategory;
+import com.eternalprotocol.api.entity.ProductStatus;
+import com.eternalprotocol.api.exception.ProductNotAvailableException;
 import com.eternalprotocol.api.exception.ResourceNotFoundException;
 import com.eternalprotocol.api.repository.CartItemRepository;
 import com.eternalprotocol.api.repository.CustomerRepository;
@@ -22,6 +24,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -88,6 +91,37 @@ class CartTest {
 
         // Then: 2 + 3 = 5 on the same line
         assertEquals(5, result.quantity());
+    }
+
+    @Test
+    void addToCart_comingSoonProduct_isRefusedAndNothingIsSaved() {
+        // Given: a hoodie that has not launched yet
+        hoodie.setStatus(ProductStatus.COMING_SOON);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(hoodie));
+
+        // When / Then: it cannot go into a cart, and the message names the product
+        ProductNotAvailableException ex = assertThrows(ProductNotAvailableException.class,
+                () -> cartService.addToCart(1L, new CartItemRequestDto(10L, "M", "Black", 1)));
+        assertTrue(ex.getMessage().contains("Team Hoodie"));
+        verify(cartItemRepository, never()).save(any(CartItem.class));
+    }
+
+    @Test
+    void addToCart_productThatHasLaunched_isAcceptedAsBefore() {
+        // Given: a hoodie that is live in the shop (ACTIVE), e.g. after it launched
+        hoodie.setStatus(ProductStatus.ACTIVE);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(hoodie));
+        when(cartItemRepository.findByCustomerIdAndProductIdAndSizeAndColour(1L, 10L, "M", "Black"))
+                .thenReturn(Optional.empty());
+        when(cartItemRepository.save(any(CartItem.class))).thenAnswer(call -> call.getArgument(0));
+
+        // When
+        CartItemDto result = cartService.addToCart(1L, new CartItemRequestDto(10L, "M", "Black", 1));
+
+        // Then
+        assertEquals(1, result.quantity());
     }
 
     @Test
