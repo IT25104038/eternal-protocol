@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { productsApi } from '@/api/products'
 import { useToastStore } from '@/stores/toast'
@@ -8,9 +8,12 @@ import { Button } from '@/components/ui/Button'
 import { FormInput, FormSelect, FormTextarea } from '@/components/ui/FormField'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Price } from '@/components/ui/Price'
-import { FaStar } from 'react-icons/fa6'
+import { FaCloudArrowUp, FaStar } from 'react-icons/fa6'
 import { CATEGORY_NAV } from '@/lib/categories'
 import type { ProductDto, ProductImageDto, ProductInput } from '@/types'
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
 const emptyForm: ProductInput = {
   styleCode: '',
@@ -299,7 +302,7 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
             <ProductGalleryEditor styleCode={form.styleCode.trim()} colour={form.colour.trim()} />
           ) : (
             <p className="text-xs text-ep-muted">
-              Enter a style code and colour above, then add this colour's photos here.
+              Enter a style code and colour above, then upload this colour's photos here.
             </p>
           )}
         </div>
@@ -329,7 +332,10 @@ function ProductFormModal({ product, onClose }: { product: ProductDto | null; on
 function ProductGalleryEditor({ styleCode, colour }: { styleCode: string; colour: string }) {
   const queryClient = useQueryClient()
   const pushToast = useToastStore((s) => s.push)
-  const [urlInput, setUrlInput] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  // Batch upload progress: how many of the files picked in this drop/select have finished so far.
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
 
   const galleryKey = ['product-images', styleCode]
 
@@ -362,22 +368,50 @@ function ProductGalleryEditor({ styleCode, colour }: { styleCode: string; colour
     onError: (err) => pushToast(getErrorMessage(err), 'error'),
   })
 
-  const addMutation = useMutation({
-    mutationFn: (imageUrl: string) => productsApi.addImage(styleCode, { colour, imageUrl }),
-    onSuccess: () => {
-      setUrlInput('')
-      invalidate()
-    },
-    onError: (err) => pushToast(getErrorMessage(err, 'Failed to add photo'), 'error'),
-  })
-
-  function handleAddUrl() {
-    const url = urlInput.trim()
-    if (!/^(https?:\/\/|\/)/i.test(url)) {
-      pushToast('Enter a full image URL (https://…) or a site path starting with /', 'error')
-      return
+  function validFile(file: File): boolean {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      pushToast(`${file.name}: only JPEG, PNG, WebP, or GIF images are allowed.`, 'error')
+      return false
     }
-    addMutation.mutate(url)
+    if (file.size > MAX_IMAGE_BYTES) {
+      pushToast(`${file.name}: image must be 5MB or smaller.`, 'error')
+      return false
+    }
+    return true
+  }
+
+  /** Uploads every valid file in the batch, one at a time, so the progress counter is meaningful. */
+  async function uploadBatch(fileList: FileList | File[]) {
+    const files = Array.from(fileList).filter(validFile)
+    if (files.length === 0) return
+
+    setBatch({ done: 0, total: files.length })
+    for (const file of files) {
+      try {
+        const uploaded = await productsApi.uploadImage(file)
+        await productsApi.addImage(styleCode, {
+          colour,
+          imageUrl: uploaded.imageUrl,
+          publicId: uploaded.publicId,
+        })
+      } catch (err) {
+        pushToast(getErrorMessage(err, `Failed to upload ${file.name}`), 'error')
+      }
+      setBatch((b) => (b ? { ...b, done: b.done + 1 } : b))
+    }
+    setBatch(null)
+    invalidate()
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files?.length) uploadBatch(e.target.files)
+    e.target.value = ''
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setIsDragging(false)
+    if (e.dataTransfer.files?.length) uploadBatch(e.dataTransfer.files)
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -394,7 +428,7 @@ function ProductGalleryEditor({ styleCode, colour }: { styleCode: string; colour
         Photo gallery — {colour} (all sizes)
       </span>
       <p className="mb-3 text-xs text-ep-muted">
-        Add this colour's photo URLs once here, then pick one as the cover shown on the shop grid.
+        Upload this colour's photos once here, then pick one as the cover shown on the shop grid.
       </p>
 
       {isLoading ? (
@@ -455,27 +489,40 @@ function ProductGalleryEditor({ styleCode, colour }: { styleCode: string; colour
         </div>
       ) : null}
 
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <FormInput
-            label="Photo URL"
-            type="url"
-            placeholder="https://… or /products/photo.jpg"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => {
-              // This editor sits inside the product form — Enter should add the photo, not submit the form.
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAddUrl()
-              }
-            }}
-          />
-        </div>
-        <Button type="button" variant="ghost" loading={addMutation.isPending} onClick={handleAddUrl}>
-          Add photo
-        </Button>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => fileInputRef.current?.click()}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setIsDragging(true)
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed px-6 py-8 text-center transition-colors ${
+          isDragging ? 'border-ep-bone bg-ep-surface-2' : 'border-ep-border hover:border-ep-muted'
+        }`}
+      >
+        <FaCloudArrowUp className="h-6 w-6 text-ep-muted" />
+        <p className="text-sm text-ep-bone">
+          <span className="underline">Click to upload</span> or drag photos here
+        </p>
+        <p className="text-xs text-ep-muted">JPEG, PNG, WebP, or GIF — up to 5MB each. You can select several at once.</p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
       </div>
+      {batch && (
+        <p className="mt-2 text-xs text-ep-muted">
+          Uploading photo {Math.min(batch.done + 1, batch.total)} of {batch.total}…
+        </p>
+      )}
     </div>
   )
 }
