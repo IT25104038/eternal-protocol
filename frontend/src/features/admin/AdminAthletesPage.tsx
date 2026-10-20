@@ -126,9 +126,9 @@ function CreateAthleteForm({ onCreated }: { onCreated: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: adminApi.athletes.create,
-    onSuccess: () => {
+    onSuccess: (athlete) => {
       queryClient.invalidateQueries({ queryKey: ['admin-athletes'] })
-      pushToast('Athlete created', 'success')
+      pushToast(`Athlete created. Their code is ${athlete.athleteCode}`, 'success')
       onCreated()
     },
     onError: (err) => pushToast(getErrorMessage(err), 'error'),
@@ -139,7 +139,6 @@ function CreateAthleteForm({ onCreated }: { onCreated: () => void }) {
     if (!form.name.trim()) next.name = 'Required'
     if (!form.email.trim()) next.email = 'Required'
     if (form.password.length < 6) next.password = 'At least 6 characters'
-    if (!form.athleteCode.trim()) next.athleteCode = 'Required'
     const rate = Number(form.commissionRate)
     if (!form.commissionRate || isNaN(rate) || rate < 0 || rate > 100) next.commissionRate = '0–100'
     setErrors(next)
@@ -153,7 +152,8 @@ function CreateAthleteForm({ onCreated }: { onCreated: () => void }) {
       name: form.name.trim(),
       email: form.email.trim(),
       password: form.password,
-      athleteCode: form.athleteCode.trim(),
+      // Blank means "generate one from the athlete's name" on the server
+      athleteCode: form.athleteCode.trim() || undefined,
       commissionRate: Number(form.commissionRate),
     })
   }
@@ -176,7 +176,8 @@ function CreateAthleteForm({ onCreated }: { onCreated: () => void }) {
         error={errors.password}
       />
       <FormInput
-        label="Athlete code"
+        label="Athlete code (optional)"
+        placeholder="Leave blank to auto-generate, e.g. USA472"
         value={form.athleteCode}
         onChange={(e) => setForm((f) => ({ ...f, athleteCode: e.target.value }))}
         error={errors.athleteCode}

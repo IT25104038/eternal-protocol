@@ -213,7 +213,8 @@ export interface CreateAthleteInput {
   name: string
   email: string
   password: string
-  athleteCode: string
+  /** Optional: when left out, the backend generates a code from the athlete's name. */
+  athleteCode?: string
   commissionRate: number
 }
 
