@@ -19,38 +19,39 @@ import java.util.List;
 
 /**
  * Business logic for discount code validation, an athlete's own dashboard,
- * and admin management of athletes and their commissions.
+ * and admin management of athletes and their commissions
  */
+
 @Service
 public class AthleteService {
 
     private final AthleteRepository athleteRepository;
     private final CommissionRepository commissionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AthleteCodeGenerator athleteCodeGenerator;
 
     /**
-     * @param athleteRepository    access to athlete data
+     * @param athleteRepository  access to athlete data
      * @param commissionRepository access to commission data
-     * @param passwordEncoder      hashes new athlete passwords
+     * @param passwordEncoder    hashes new athlete passwords
+     * @param athleteCodeGenerator creates a code from the athlete's name when none is supplied
      */
     public AthleteService(AthleteRepository athleteRepository,
                            CommissionRepository commissionRepository,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder,
+                           AthleteCodeGenerator athleteCodeGenerator) {
         this.athleteRepository = athleteRepository;
         this.commissionRepository = commissionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.athleteCodeGenerator = athleteCodeGenerator;
     }
 
     /**
-     * Checks whether a discount code exists and is active. Used by the
-     * checkout page's live discount preview as a customer types a code —
-     * a fast-repeating call for the same one or two codes, which is why
-     * this method checks {@link AthleteCodeCache} before ever touching the
-     * database, and populates it on a miss.
      *
      * @param code the code to check
-     * @return whether the code is valid, and its discount percentage
+     * @return whether the code is valid and its discount percentage
      */
+
     public AthleteCodeValidationDto validateCode(String code) {
         AthleteCodeCache cache = AthleteCodeCache.getInstance();
 
@@ -65,13 +66,8 @@ public class AthleteService {
     }
 
     /**
-     * Builds an athlete's own dashboard: their commission totals and
-     * order history. {@code athleteId} must always come from the verified
-     * JWT (see {@code CurrentUser} / {@code AthleteController}), never
-     * from a client-supplied path variable — otherwise one athlete could
-     * view another athlete's dashboard just by guessing an ID.
      *
-     * @param athleteId athlete's database ID, taken from the JWT
+     * @param athleteId athlete's database ID taken from the JWT
      * @return the athlete's dashboard totals and order list
      * @throws ResourceNotFoundException if no athlete exists with this ID
      */
@@ -107,10 +103,10 @@ public class AthleteService {
     }
 
     /**
-     * Sums the commission amount of every commission in a given status.
+     * Sums the commission amount of every commission in a given status
      *
      * @param commissions the commissions to sum
-     * @param status      status to filter by before summing
+     * @param status   status to filter by before summing
      * @return the total amount for commissions in that status
      */
     private BigDecimal sumByStatus(List<Commission> commissions, CommissionStatus status) {
@@ -121,7 +117,7 @@ public class AthleteService {
     }
 
     /**
-     * Gets every athlete account, for the admin dashboard.
+     * Gets every athlete account for the admin dashboard
      *
      * @return all athletes
      */
@@ -130,42 +126,46 @@ public class AthleteService {
     }
 
     /**
-     * Creates a new athlete account.
+     * Creates a new athlete account. If the request has no athlete code, one
+     * is generated from the athlete's name (see {@link AthleteCodeGenerator})
+     * An admin can still type their own code which must not already be taken
      *
      * @param request new athlete's details
-     * @return the created athlete
+     * @return the created athlete including the final athlete code
      * @throws EmailAlreadyInUseException if the email is already registered
-     * @throws IllegalArgumentException   if the athlete code is already taken
+     * @throws IllegalArgumentException   if a manually supplied athlete code is already taken
      */
     public AthleteDto createAthlete(CreateAthleteRequestDto request) {
         if (athleteRepository.existsByEmail(request.email())) {
             throw new EmailAlreadyInUseException("An account with this email already exists");
         }
-        if (athleteRepository.existsByAthleteCodeIgnoreCase(request.athleteCode())) {
-            throw new IllegalArgumentException("Athlete code already in use: " + request.athleteCode());
+
+        String athleteCode;
+        if (request.athleteCode() == null || request.athleteCode().isBlank()) {
+            athleteCode = athleteCodeGenerator.generate(request.name());
+        } else {
+            athleteCode = request.athleteCode().trim();
+            if (athleteRepository.existsByAthleteCodeIgnoreCase(athleteCode)) {
+                throw new IllegalArgumentException("Athlete code already in use: " + athleteCode);
+            }
         }
 
         Athlete athlete = new Athlete();
         athlete.setName(request.name());
         athlete.setEmail(request.email());
         athlete.setPasswordHash(passwordEncoder.encode(request.password()));
-        athlete.setAthleteCode(request.athleteCode());
+        athlete.setAthleteCode(athleteCode);
         athlete.setCommissionRate(request.commissionRate());
         athlete.setActive(true);
 
-        return toDto(athleteRepository.save(athlete));
+        AthleteDto created = toDto(athleteRepository.save(athlete));
+        AthleteCodeCache.getInstance().evict(athleteCode);
+        return created;
     }
 
     /**
-     * Updates an existing athlete's commission rate and/or active status.
-     * Any field left null in the request is left unchanged. Evicts this
-     * athlete's code from {@link AthleteCodeCache} afterward, since either
-     * change affects what {@link #validateCode} should return for it —
-     * without this, a customer could keep seeing a stale cached discount
-     * rate, or a deactivated code as still valid, for up to the cache's
-     * TTL after an admin changed it.
      *
-     * @param id      athlete's database ID
+     * @param id    athlete's database ID
      * @param request fields to change
      * @return the updated athlete
      * @throws ResourceNotFoundException if no athlete exists with this ID
@@ -187,9 +187,9 @@ public class AthleteService {
     }
 
     /**
-     * Gets every commission in the system, optionally filtered by status.
+     * Gets every commission in the system
      *
-     * @param statusFilter status name to filter by (e.g. "EARNED"), or null/blank for all
+     * @param statusFilter status name to filter 
      * @return matching commissions
      */
     @Transactional(readOnly = true)
@@ -205,7 +205,7 @@ public class AthleteService {
     }
 
     /**
-     * Marks a commission as paid out to its athlete.
+     * Marks a commission as paid out to its athlete
      *
      * @param commissionId commission's database ID
      * @return the updated commission
@@ -229,10 +229,10 @@ public class AthleteService {
     }
 
     /**
-     * Converts a database entity into its public-facing DTO shape.
+     * Converts a database entity into its public facing DTO shape
      *
-     * @param a the entity to convert
-     * @return the equivalent DTO
+     * @param a entity to convert
+     * @return equivalent DTO
      */
     private AthleteDto toDto(Athlete a) {
         return new AthleteDto(a.getId(), a.getName(), a.getEmail(), a.getAthleteCode(),
@@ -240,10 +240,10 @@ public class AthleteService {
     }
 
     /**
-     * Converts a database entity into its public-facing DTO shape.
+     * Converts a database entity into its public facing DTO shape
      *
-     * @param c the entity to convert
-     * @return the equivalent DTO
+     * @param c entity to convert
+     * @return equivalent DTO
      */
     private CommissionDto toCommissionDto(Commission c) {
         return new CommissionDto(c.getId(), c.getAthlete().getName(), c.getAthlete().getAthleteCode(),
