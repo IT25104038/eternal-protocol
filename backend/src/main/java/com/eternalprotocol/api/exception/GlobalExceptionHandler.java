@@ -97,6 +97,32 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles a failed image upload to Cloudinary.
+     *
+     * @param ex the thrown exception
+     * @return 502 response — this server is fine, the upstream image service failed
+     */
+    @ExceptionHandler(ImageUploadException.class)
+    public ResponseEntity<Map<String, Object>> handleImageUpload(ImageUploadException ex) {
+        return build(HttpStatus.BAD_GATEWAY, ex.getMessage());
+    }
+
+    /**
+     * Handles a file upload that's too large. Spring rejects an oversized
+     * upload while parsing the request, before it ever reaches
+     * {@code ImageUploadService}'s own size check — this gives the same
+     * message, just caught one step earlier.
+     *
+     * @param ex the thrown exception
+     * @return 400 response
+     */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleMaxUploadSize(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Image must be smaller than 5MB");
+    }
+
+    /**
      * Fallback for any database constraint violation (foreign key, unique
      * constraint, etc.) that doesn't have its own specific handler above.
      * See {@code ProductService.deleteProduct} for the one place this kind

@@ -1,5 +1,6 @@
 package com.eternalprotocol.api.controller;
 
+import com.eternalprotocol.api.dto.ImageUploadResponseDto;
 import com.eternalprotocol.api.dto.ProductDto;
 import com.eternalprotocol.api.dto.ProductImageDto;
 import com.eternalprotocol.api.dto.ProductImageRequestDto;
@@ -7,11 +8,13 @@ import com.eternalprotocol.api.dto.ProductRequestDto;
 import com.eternalprotocol.api.dto.ReorderImagesRequestDto;
 import com.eternalprotocol.api.entity.ProductCategory;
 import com.eternalprotocol.api.entity.ProductStatus;
+import com.eternalprotocol.api.service.ImageUploadService;
 import com.eternalprotocol.api.service.ProductImageService;
 import com.eternalprotocol.api.service.ProductService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -28,14 +31,18 @@ import java.util.List;
 public class ProductController {
 
     private final ProductService productService;
+    private final ImageUploadService imageUploadService;
     private final ProductImageService productImageService;
 
     /**
      * @param productService      product CRUD and search logic
+     * @param imageUploadService  handles raw file uploads to Cloudinary
      * @param productImageService manages a product's photo gallery
      */
-    public ProductController(ProductService productService, ProductImageService productImageService) {
+    public ProductController(ProductService productService, ImageUploadService imageUploadService,
+                              ProductImageService productImageService) {
         this.productService = productService;
+        this.imageUploadService = imageUploadService;
         this.productImageService = productImageService;
     }
 
@@ -143,11 +150,28 @@ public class ProductController {
     }
 
     /**
-     * Admin only. Attaches an image, given by URL, to a style/colour's
-     * gallery.
+     * Admin only. Uploads a raw image file to Cloudinary and returns its
+     * public URL and Cloudinary ID. This is a separate step from attaching
+     * the image to a product ({@link #addImage}) — it lets the admin
+     * preview the uploaded photo before submitting the rest of the form,
+     * and keeps the large binary upload request separate from the small
+     * JSON "attach this image" request.
+     *
+     * @param file the image file to upload
+     * @return the uploaded image's URL and Cloudinary ID
+     */
+    @PostMapping(value = "/upload-image", consumes = "multipart/form-data")
+    public ResponseEntity<ImageUploadResponseDto> uploadImage(@RequestParam("file") MultipartFile file) {
+        ImageUploadService.UploadResult result = imageUploadService.uploadProductImage(file);
+        return ResponseEntity.ok(new ImageUploadResponseDto(result.url(), result.publicId()));
+    }
+
+    /**
+     * Admin only. Attaches an already-uploaded image (from
+     * {@link #uploadImage}) to a style/colour's gallery.
      *
      * @param styleCode style to attach the image to
-     * @param request   the image's URL and target colour
+     * @param request   the uploaded image's URL/ID and target colour
      * @return the newly added gallery image
      */
     @PostMapping("/style/{styleCode}/images")

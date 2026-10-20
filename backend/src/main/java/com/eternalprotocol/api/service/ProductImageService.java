@@ -22,14 +22,18 @@ public class ProductImageService {
 
     private final ProductImageRepository productImageRepository;
     private final ProductRepository productRepository;
+    private final ImageUploadService imageUploadService;
 
     /**
      * @param productImageRepository access to gallery image data
      * @param productRepository      access to product data, used to keep cover thumbnails in sync
+     * @param imageUploadService     deletes the underlying Cloudinary asset when an image is removed
      */
-    public ProductImageService(ProductImageRepository productImageRepository, ProductRepository productRepository) {
+    public ProductImageService(ProductImageRepository productImageRepository, ProductRepository productRepository,
+                                ImageUploadService imageUploadService) {
         this.productImageRepository = productImageRepository;
         this.productRepository = productRepository;
+        this.imageUploadService = imageUploadService;
     }
 
     /**
@@ -109,7 +113,8 @@ public class ProductImageService {
     }
 
     /**
-     * Permanently deletes one gallery image. If the deleted image was the cover photo, whichever
+     * Permanently deletes one gallery image, including its file on
+     * Cloudinary. If the deleted image was the cover photo, whichever
      * image is now first in display order is automatically promoted to
      * cover, so a colour with photos never ends up without one.
      *
@@ -125,6 +130,7 @@ public class ProductImageService {
         boolean wasCover = image.isCover();
 
         productImageRepository.delete(image);
+        imageUploadService.deleteProductImage(image.getCloudinaryPublicId());
 
         if (wasCover) {
             productImageRepository.findByStyleCodeAndColourOrderBySortOrderAsc(styleCode, colour)
@@ -139,9 +145,11 @@ public class ProductImageService {
     }
 
     /**
-     * Deletes every photo for a style/colour. Called by {@code ProductService.deleteProduct} once
+     * Deletes every photo (database row and Cloudinary asset) for a
+     * style/colour. Called by {@code ProductService.deleteProduct} once
      * the last size row for that colour is gone — at that point nothing
-     * references these photos anymore.
+     * references these photos anymore, so leaving them on Cloudinary would
+     * just burn storage quota for no reason.
      *
      * @param styleCode style to clear images for
      * @param colour    colour to clear images for
@@ -153,6 +161,7 @@ public class ProductImageService {
             return;
         }
         productImageRepository.deleteAll(images);
+        images.forEach(img -> imageUploadService.deleteProductImage(img.getCloudinaryPublicId()));
     }
 
     /**
