@@ -68,7 +68,6 @@ function ServerCart() {
     mutationFn: customersApi.cart.clear,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cart'] })
-      // MILESTONE 2: add an Undo action to this toast, calling customersApi.cart.undo()
       pushToast('Cart cleared', 'info')
     },
     onError: (err) => pushToast(getErrorMessage(err), 'error'),

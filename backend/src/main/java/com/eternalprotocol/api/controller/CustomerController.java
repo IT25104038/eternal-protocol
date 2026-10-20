@@ -4,11 +4,13 @@ package com.eternalprotocol.api.controller;
 import com.eternalprotocol.api.dto.CartItemDto;
 import com.eternalprotocol.api.dto.CartItemRequestDto;
 import com.eternalprotocol.api.dto.CustomerProfileDto;
+import com.eternalprotocol.api.dto.OrderDetailDto;
 import com.eternalprotocol.api.dto.UpdateCartItemQuantityRequestDto;
 import com.eternalprotocol.api.dto.UpdateCustomerProfileRequestDto;
 import com.eternalprotocol.api.security.CurrentUser;
 import com.eternalprotocol.api.service.CartService;
 import com.eternalprotocol.api.service.CustomerService;
+import com.eternalprotocol.api.service.OrderService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +31,7 @@ import java.util.List;
 public class CustomerController {
 
     private final CustomerService customerService;
+    private final OrderService orderService;
     private final CartService cartService;
     private final CurrentUser currentUser;
 
@@ -36,11 +39,14 @@ public class CustomerController {
      * Sets up the controller with the necessary services
      *
      * @param customerService handles profile read/update logic
+     * @param orderService handles order history lookups
      * @param cartService handles the shopping cart logic
      * @param currentUser extracts the logged-in customer's ID from their token
      */
-    public CustomerController(CustomerService customerService, CartService cartService, CurrentUser currentUser) {
+    public CustomerController(CustomerService customerService, OrderService orderService,
+                               CartService cartService, CurrentUser currentUser) {
         this.customerService = customerService;
+        this.orderService = orderService;
         this.cartService = cartService;
         this.currentUser = currentUser;
     }
@@ -64,6 +70,16 @@ public class CustomerController {
     @PutMapping
     public ResponseEntity<CustomerProfileDto> updateProfile(@Valid @RequestBody UpdateCustomerProfileRequestDto request) {
         return ResponseEntity.ok(customerService.updateProfile(currentUser.id(), request));
+    }
+
+    /**
+     * Gets the logged-in customer's past orders.
+     *
+     * @return the customer's order history
+     */
+    @GetMapping("/orders")
+    public ResponseEntity<List<OrderDetailDto>> getOrderHistory() {
+        return ResponseEntity.ok(orderService.getOrdersForCustomer(currentUser.id()));
     }
 
     /**
@@ -119,7 +135,6 @@ public class CustomerController {
 
     /**
      * Empties the logged in customer's whole cart
-     * MILESTONE 2: this becomes a MacroCartCommand run through CartInvoker so it can be undone
      *
      * @return the customer's cart, now empty
      */

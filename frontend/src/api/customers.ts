@@ -1,11 +1,9 @@
-// MILESTONE 1 SCOPE — profile + cart only.
-// Deferred to Milestone 2: myOrders() (order history page) and cart.undo()
-// (needs the Command-pattern backend endpoint POST /api/customers/me/cart/undo).
 import { apiClient } from './client'
 import type {
   AddCartItemInput,
   CartItemDto,
   CustomerProfileDto,
+  OrderDetailDto,
   UpdateProfileInput,
 } from '@/types'
 
@@ -14,6 +12,8 @@ export const customersApi = {
 
   updateMe: (input: UpdateProfileInput) =>
     apiClient.put<CustomerProfileDto>('/api/customers/me', input).then((r) => r.data),
+
+  myOrders: () => apiClient.get<OrderDetailDto[]>('/api/customers/me/orders').then((r) => r.data),
 
   cart: {
     list: () => apiClient.get<CartItemDto[]>('/api/customers/me/cart').then((r) => r.data),
@@ -28,7 +28,10 @@ export const customersApi = {
 
     remove: (itemId: number) => apiClient.delete(`/api/customers/me/cart/${itemId}`),
 
-    /** Clears every line in one action. */
+    /** Clears every line in one action — undoable via undo() below. */
     clear: () => apiClient.delete<CartItemDto[]>('/api/customers/me/cart').then((r) => r.data),
+
+    /** Reverts the most recent cart action (add, quantity change, remove, or clear). */
+    undo: () => apiClient.post<CartItemDto[]>('/api/customers/me/cart/undo').then((r) => r.data),
   },
 }

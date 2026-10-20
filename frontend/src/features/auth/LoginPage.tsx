@@ -1,12 +1,10 @@
-// MILESTONE 1 SCOPE.
-// Deferred to Milestone 2: merging the guest cart into the server cart on
-// login — see the comment in the submit handler below.
-
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { useAuthStore, landingRouteForRole } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import { getErrorMessage } from '@/api/client'
+import { mergeGuestCartIntoServer } from '@/features/cart/mergeGuestCart'
 import { Button } from '@/components/ui/Button'
 import { FormInput } from '@/components/ui/FormField'
 
@@ -14,6 +12,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const setSession = useAuthStore((s) => s.setSession)
+  const pushToast = useToastStore((s) => s.push)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,9 +26,12 @@ export function LoginPage() {
     try {
       const auth = await authApi.login({ email: email.trim(), password })
       setSession(auth)
-      // MILESTONE 2 folds the guest cart into the server cart here, via
-      // mergeGuestCartIntoServer(). Milestone 1 leaves the two carts
-      // separate — a customer's guest-cart items don't carry over on login.
+      if (auth.role === 'CUSTOMER') {
+        await mergeGuestCartIntoServer().catch(() => {
+          // Merge failing shouldn't block login
+          pushToast('Logged in, but some cart items may not have synced. Check your cart.', 'info')
+        })
+      }
       const from = (location.state as { from?: Location })?.from?.pathname
       navigate(from ?? landingRouteForRole(auth.role), { replace: true })
     } catch (err) {

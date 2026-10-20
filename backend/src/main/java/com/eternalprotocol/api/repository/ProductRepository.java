@@ -2,6 +2,7 @@ package com.eternalprotocol.api.repository;
 
 import com.eternalprotocol.api.entity.Product;
 import com.eternalprotocol.api.entity.ProductCategory;
+import com.eternalprotocol.api.entity.ProductStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -22,7 +23,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * Filters products by style code, colour, and/or size. Pass null for
      * any filter you don't want applied. Used internally by services (not
      * the public API) for lookups that already know the exact style, such
-     * deleted, category doesn't matter for those, so it's left out of
+     * as syncing cover images or cleaning up a gallery when a product is
+     * deleted — category doesn't matter for those, so it's left out of
      * this query and handled separately by {@link #searchStorefront}.
      *
      * @param styleCode style code to match, or null to ignore
@@ -40,17 +42,20 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     /**
      * The full storefront search backing {@code GET /api/products}. Same
-     * filters as {@link #search}, plus category and subcategory. Pass null
-     * for any filter you don't want applied. Newest first.
-     * <p>
-     * MILESTONE 2 adds a {@code status} parameter here so the storefront can
-     * ask for ACTIVE only and the Upcoming page for COMING_SOON only.
+     * filters as {@link #search}, plus category, subcategory, and status.
+     * Pass null for any filter you don't want applied — the admin product
+     * table relies on this to leave {@code status} unset and see every
+     * product regardless of lifecycle state, while storefront pages pass
+     * {@code ACTIVE} (or {@code COMING_SOON} for the Upcoming page)
+     * explicitly. Newest first, so a "New Drops" feed is just the head of
+     * this list rather than a separate query.
      *
      * @param styleCode   style code to match, or null to ignore
      * @param colour      colour to match, or null to ignore
      * @param size        size to match, or null to ignore
      * @param category    top-level category to match, or null to ignore
      * @param subCategory subcategory to match, or null to ignore
+     * @param status      lifecycle status to match, or null to ignore
      * @return matching products, newest first
      */
     @Query("SELECT p FROM Product p WHERE " +
@@ -58,19 +63,21 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             "(:colour IS NULL OR LOWER(p.colour) = LOWER(:colour)) AND " +
             "(:size IS NULL OR LOWER(p.size) = LOWER(:size)) AND " +
             "(:category IS NULL OR p.category = :category) AND " +
-            "(:subCategory IS NULL OR LOWER(p.subCategory) = LOWER(:subCategory)) " +
+            "(:subCategory IS NULL OR LOWER(p.subCategory) = LOWER(:subCategory)) AND " +
+            "(:status IS NULL OR p.status = :status) " +
             "ORDER BY p.createdAt DESC")
     List<Product> searchStorefront(@Param("styleCode") String styleCode,
                                     @Param("colour") String colour,
                                     @Param("size") String size,
                                     @Param("category") ProductCategory category,
-                                    @Param("subCategory") String subCategory);
+                                    @Param("subCategory") String subCategory,
+                                    @Param("status") ProductStatus status);
 
     /**
      * Gets every distinct subcategory name currently used within one
      * category, alphabetically. Powers the navbar's per-category dropdown,
      * so it only ever lists subcategories that actually have products
-     * right now, the same way colour/size filter options are driven by
+     * right now — the same way colour/size filter options are driven by
      * what's actually listed.
      *
      * @param category category to look up subcategories for

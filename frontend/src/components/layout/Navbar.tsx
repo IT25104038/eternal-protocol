@@ -1,15 +1,15 @@
-// MILESTONE 1 SCOPE — logo, category links, cart count, auth state.
-// Deferred to Milestone 2: CategoryNavDropdown and MobileCategorySection (the
-// live subcategory menus), UserMenu (the avatar dropdown), and the CUSTOMER
-// and ATHLETE links that need pages which do not exist yet.
-
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { FaCartShopping, FaXmark } from 'react-icons/fa6'
+import { FaCartShopping, FaChevronDown, FaXmark } from 'react-icons/fa6'
+import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/auth'
 import { useGuestCartStore } from '@/stores/cart'
 import { useCartCount } from '@/features/cart/useCartCount'
+import { productsApi } from '@/api/products'
+import { CategoryNavDropdown } from '@/components/layout/CategoryNavDropdown'
+import { UserMenu } from '@/components/layout/UserMenu'
 import { CATEGORY_NAV } from '@/lib/categories'
+import type { ProductCategory } from '@/types'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `block text-sm uppercase tracking-widest transition-colors hover:text-white ${isActive ? 'text-white' : 'text-ep-muted'}`
@@ -33,34 +33,15 @@ export function Navbar() {
           ETERNAL PROTOCOL
         </Link>
 
-        {/* MILESTONE 2 replaces these plain links with CategoryNavDropdown,
-            which fetches each category's live subcategory list on hover. */}
         <nav className="hidden items-center justify-center gap-10 md:flex">
           {CATEGORY_NAV.map(({ category, slug, label }) => (
-            <NavLink key={category} to={`/shop/${slug}`} className={navLinkClass}>
-              {label}
-            </NavLink>
+            <CategoryNavDropdown key={category} category={category} slug={slug} label={label} />
           ))}
         </nav>
 
         <div className="flex items-center justify-end gap-5">
-          {/* MILESTONE 2 replaces this with UserMenu: an avatar dropdown with
-              the role-specific links and a log-out item. */}
-          <div className="hidden items-center gap-5 md:flex">
-            {role === 'ADMIN' && (
-              <NavLink to="/admin/products" className={navLinkClass}>
-                Admin
-              </NavLink>
-            )}
-            {role ? (
-              <button onClick={handleLogout} className="text-sm uppercase tracking-widest text-ep-muted transition-colors hover:text-white">
-                Log out
-              </button>
-            ) : (
-              <NavLink to="/login" className={navLinkClass}>
-                Log in
-              </NavLink>
-            )}
+          <div className="hidden md:block">
+            <UserMenu />
           </div>
           <Link to="/cart" className="relative text-ep-muted transition-colors hover:text-white" aria-label="Cart">
             <FaCartShopping className="h-5 w-5" />
@@ -82,22 +63,26 @@ export function Navbar() {
 
       {mobileOpen && (
         <nav className="flex flex-col gap-1 border-t border-ep-border px-4 py-4 md:hidden">
-          {/* MILESTONE 2 replaces these with MobileCategorySection, an
-              accordion that expands each category's subcategory list. */}
           {CATEGORY_NAV.map(({ category, slug, label }) => (
-            <NavLink
-              key={category}
-              to={`/shop/${slug}`}
-              className={navLinkClass + ' py-2'}
-              onClick={() => setMobileOpen(false)}
-            >
-              {label}
-            </NavLink>
+            <MobileCategorySection key={category} category={category} slug={slug} label={label} onNavigate={() => setMobileOpen(false)} />
           ))}
 
           <div className="mt-3 border-t border-ep-border pt-3">
-            {/* MILESTONE 2 adds the CUSTOMER links (/account, /account/orders)
-                and the ATHLETE link (/athlete/dashboard) here. */}
+            {role === 'CUSTOMER' && (
+              <>
+                <NavLink to="/account" className={navLinkClass + ' py-2'} onClick={() => setMobileOpen(false)}>
+                  Account
+                </NavLink>
+                <NavLink to="/account/orders" className={navLinkClass + ' py-2'} onClick={() => setMobileOpen(false)}>
+                  Orders
+                </NavLink>
+              </>
+            )}
+            {role === 'ATHLETE' && (
+              <NavLink to="/athlete/dashboard" className={navLinkClass + ' py-2'} onClick={() => setMobileOpen(false)}>
+                Dashboard
+              </NavLink>
+            )}
             {role === 'ADMIN' && (
               <NavLink to="/admin/products" className={navLinkClass + ' py-2'} onClick={() => setMobileOpen(false)}>
                 Admin Dashboard
@@ -119,8 +104,55 @@ export function Navbar() {
   )
 }
 
-// ----------------------------------------------------------------------
-// MILESTONE 2 — MobileCategorySection lives here: the mobile accordion
-// version of one category, tapping to expand its live subcategory list
-// (GET /api/products/subcategories) instead of a hover dropdown.
-// ----------------------------------------------------------------------
+/** Mobile accordion version of one category — tap to expand its subcategory list instead of a hover dropdown. */
+function MobileCategorySection({
+  category,
+  slug,
+  label,
+  onNavigate,
+}: {
+  category: ProductCategory
+  slug: string
+  label: string
+  onNavigate: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const { data: subCategories } = useQuery({
+    queryKey: ['subcategories', category],
+    queryFn: () => productsApi.subCategories(category),
+    enabled: expanded,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  return (
+    <div className="border-b border-ep-border/60 py-1 last:border-b-0">
+      <div className="flex items-center justify-between">
+        <NavLink to={`/shop/${slug}`} className={navLinkClass + ' py-2'} onClick={onNavigate}>
+          {label}
+        </NavLink>
+        <button
+          type="button"
+          aria-label={`Toggle ${label} subcategories`}
+          onClick={() => setExpanded((v) => !v)}
+          className="p-2 text-ep-muted"
+        >
+          <FaChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+      {expanded && subCategories && subCategories.length > 0 && (
+        <div className="flex flex-col gap-1 pb-2 pl-4">
+          {subCategories.map((sub) => (
+            <Link
+              key={sub}
+              to={`/shop/${slug}?subCategory=${encodeURIComponent(sub)}`}
+              onClick={onNavigate}
+              className="py-1.5 text-xs uppercase tracking-widest text-ep-muted hover:text-white"
+            >
+              {sub}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

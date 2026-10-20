@@ -1,4 +1,4 @@
-import type { ProductDto } from '@/types'
+import type { ProductDto, ProductStatus } from '@/types'
 
 export interface StyleGroup {
   styleCode: string
@@ -12,7 +12,15 @@ export interface StyleGroup {
   inStock: boolean
   /** A representative variant id to link the card to, resolved further on the PDP. */
   representativeId: number
-  /** Earliest createdAt across this style's variants — its "drop date". */
+  /**
+   * This style's lifecycle status. Every variant of one style is expected to
+   * share the same status (an admin launches a whole style at once), so the
+   * first variant's status is taken as representative.
+   */
+  status: ProductStatus
+  /** Whether to display fromPrice — only meaningful while status is COMING_SOON. */
+  showPrice: boolean
+  /** Earliest createdAt across this style's variants — its "drop date". Powers New Drops sorting. */
   createdAt: string
 }
 
@@ -38,6 +46,8 @@ export function groupByStyle(products: ProductDto[]): StyleGroup[] {
       colours: Array.from(new Set(variants.map((v) => v.colour))),
       inStock: variants.some((v) => v.stockQty > 0),
       representativeId: variants[0].id,
+      status: variants[0].status,
+      showPrice: variants[0].showPrice,
       createdAt: earliestCreatedAt,
     }
   })
