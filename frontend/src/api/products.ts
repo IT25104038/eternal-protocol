@@ -6,6 +6,7 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductStatus,
+  UploadImageResponse,
 } from '@/types'
 
 export interface ProductQuery {
@@ -46,10 +47,24 @@ export const productsApi = {
 
   remove: (id: number) => apiClient.delete(`/api/products/${id}`),
 
+  uploadImage: (file: File, onProgress?: (pct: number) => void) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post<UploadImageResponse>('/api/products/upload-image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (evt) => {
+          if (onProgress && evt.total) onProgress(Math.round((evt.loaded / evt.total) * 100))
+        },
+      })
+      .then((r) => r.data)
+  },
+
+  /** Full gallery for a style, every colour — what the PDP carousel groups by colour. */
   imagesByStyle: (styleCode: string) =>
     apiClient.get<ProductImageDto[]>(`/api/products/style/${styleCode}/images`).then((r) => r.data),
 
-  /** Attach an image (by URL) to a style+colour's gallery. */
+  /** Attach an already-uploaded image (see uploadImage) to a style+colour's gallery. */
   addImage: (styleCode: string, input: ProductImageInput) =>
     apiClient.post<ProductImageDto>(`/api/products/style/${styleCode}/images`, input).then((r) => r.data),
 
