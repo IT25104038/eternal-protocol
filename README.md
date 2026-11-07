@@ -2,6 +2,10 @@
 
 Eternal Protocol is an online store for athlete-branded merchandise. Customers shop for clothing and accessories, and can check out with an athlete's referral code so that athlete earns a commission on the sale. Store admins manage the products, orders, athletes and commission payouts.
 
+## Deployed Project
+
+site live at: https://eternal-protocol-26.netlify.app/
+
 ## Features
 
 - Browse Men's, Women's and Accessories, with colours, sizes and photo galleries
